@@ -1,0 +1,224 @@
+---
+title: "Datasets overview"
+description: "How Anomalib's data system works, including data modalities, supported formats, and the factory function for loading datasets."
+keywords: ["anomalib", "datasets", "datamodule", "AnomalibDataModule", "AnomalibDataset", "data formats"]
+---
+
+Anomalib's data system is built on top of [PyTorch Lightning's `LightningDataModule`](https://lightning.ai/docs/pytorch/stable/data/datamodule.html). Every dataset is exposed as an `AnomalibDataModule` that handles downloading, splitting, augmenting, and serving batches to the trainer.
+
+## Core classes
+
+### AnomalibDataModule
+
+`AnomalibDataModule` is the base class for all Anomalib data modules. It extends `LightningDataModule` and provides:
+
+- Automatic train/validation/test splitting
+- Per-stage augmentation pipelines (`train_augmentations`, `val_augmentations`, `test_augmentations`)
+- Configurable batch sizes for training and evaluation
+- A `from_config` class method to instantiate from a YAML file
+
+```python
+from anomalib.data import MVTecAD
+
+datamodule = MVTecAD(
+    root="./datasets/MVTecAD",
+    category="bottle",
+    train_batch_size=32,
+    eval_batch_size=32,
+    num_workers=8,
+)
+datamodule.setup()
+
+for batch in datamodule.train_dataloader():
+    print(batch.image.shape)   # torch.Size([32, 3, 256, 256])
+    print(batch.gt_label.shape)  # torch.Size([32])
+```
+
+### AnomalibDataset
+
+`AnomalibDataset` is the base class for all dataset implementations. It uses a pandas `DataFrame` internally to track samples and supports both classification and segmentation tasks.
+
+Each dataset item is returned as a typed dataclass — `ImageItem`, `VideoItem`, or `DepthItem` — and PyTorch's `DataLoader` collates them into the corresponding `ImageBatch`, `VideoBatch`, or `DepthBatch`.
+
+## Common parameters
+
+All `AnomalibDataModule` subclasses accept the following parameters:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `root` | `str \| Path` | dataset-specific | Root directory of the dataset |
+| `category` | `str` | dataset-specific | Category or subset to load |
+| `train_batch_size` | `int` | `32` | Batch size for the training dataloader |
+| `eval_batch_size` | `int` | `32` | Batch size for validation and test dataloaders |
+| `num_workers` | `int` | `8` | Number of dataloader worker processes |
+| `train_augmentations` | `Transform \| None` | `None` | Augmentations applied to training images |
+| `val_augmentations` | `Transform \| None` | `None` | Augmentations applied to validation images |
+| `test_augmentations` | `Transform \| None` | `None` | Augmentations applied to test images |
+| `augmentations` | `Transform \| None` | `None` | Fallback augmentations when stage-specific ones are not set |
+| `val_split_mode` | `ValSplitMode \| str` | `"same_as_test"` | How the validation subset is created |
+| `val_split_ratio` | `float` | `0.5` | Fraction of data reserved for validation |
+| `test_split_mode` | `TestSplitMode \| str` | `"from_dir"` | How the test subset is created |
+| `test_split_ratio` | `float` | `0.2` | Fraction of data reserved for testing |
+| `seed` | `int \| None` | `None` | Random seed for reproducible splits |
+
+### Validation split modes
+
+The `val_split_mode` parameter controls how the validation set is created:
+
+| Value | Behaviour |
+|---|---|
+| `"none"` | No validation set |
+| `"same_as_test"` | Use a copy of the test set |
+| `"from_test"` | Sample a fraction from the test set |
+| `"from_train"` | Sample a fraction from the training set |
+| `"synthetic"` | Generate synthetic anomalies from normal training images |
+
+## Data modalities
+
+<AccordionGroup>
+  <Accordion title="Image datasets">
+    Standard 2D RGB image datasets. Items are returned as `ImageItem` objects containing an `image` tensor, a `gt_label` scalar, and optionally a `gt_mask` tensor for segmentation.
+
+    ```python
+    from anomalib.data import MVTecAD
+
+    datamodule = MVTecAD(root="./datasets/MVTecAD", category="cable")
+    datamodule.setup()
+    item = datamodule.train_data[0]
+    print(item.image.shape)    # torch.Size([3, 256, 256])
+    print(item.gt_label)       # tensor(0)
+    ```
+  </Accordion>
+
+  <Accordion title="Video datasets">
+    Video datasets return clips of consecutive frames. Items are `VideoItem` objects containing an `image` tensor of shape `[C, T, H, W]` where `T` is the clip length, along with a `target_frame` index and ground-truth labels.
+
+    ```python
+    from anomalib.data import Avenue
+
+    datamodule = Avenue(
+        clip_length_in_frames=2,
+        frames_between_clips=1,
+    )
+    datamodule.setup()
+    batch = next(iter(datamodule.train_dataloader()))
+    print(batch.image.shape)   # torch.Size([32, 2, 3, 256, 256])
+    ```
+  </Accordion>
+
+  <Accordion title="Depth (RGB-D) datasets">
+    Depth datasets pair an RGB image with a depth map. Items are `DepthItem` objects containing both `image` and `depth_map` tensors.
+
+    ```python
+    from anomalib.data import MVTec3D
+
+    datamodule = MVTec3D(root="./datasets/MVTec3D", category="bagel")
+    datamodule.setup()
+    batch = next(iter(datamodule.train_dataloader()))
+    print(batch.image.shape)      # torch.Size([32, 3, 256, 256])
+    print(batch.depth_map.shape)  # torch.Size([32, 1, 256, 256])
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## DataFormat enum
+
+Anomalib exposes a unified `DataFormat` enum that merges `ImageDataFormat`, `VideoDataFormat`, and `DepthDataFormat`. You can use these string values when configuring datasets via YAML or `get_datamodule`.
+
+```python
+from anomalib.data import DataFormat, ImageDataFormat, VideoDataFormat, DepthDataFormat
+
+# All formats are accessible on the unified enum
+print(DataFormat.MVTEC_AD.value)     # "mvtecad"
+print(DataFormat.AVENUE.value)        # "avenue"
+print(DataFormat.MVTEC_3D.value)      # "mvtec_3d"
+```
+
+<AccordionGroup>
+  <Accordion title="Image formats">
+    | Enum value | String key | Dataset |
+    |---|---|---|
+    | `ImageDataFormat.BMAD` | `"bmad"` | BMAD medical anomaly |
+    | `ImageDataFormat.BTECH` | `"btech"` | BTech surface defect |
+    | `ImageDataFormat.DATUMARO` | `"datumaro"` | Datumaro / Intel Geti™ export |
+    | `ImageDataFormat.FOLDER` | `"folder"` | Custom folder structure |
+    | `ImageDataFormat.KAPUTT` | `"kaputt"` | Kaputt logistics defect |
+    | `ImageDataFormat.KOLEKTOR` | `"kolektor"` | Kolektor surface defect |
+    | `ImageDataFormat.MPDD` | `"mpdd"` | Metal parts defect |
+    | `ImageDataFormat.MVTEC_AD` | `"mvtecad"` | MVTec AD |
+    | `ImageDataFormat.MVTEC_AD_2` | `"mvtecad2"` | MVTec AD 2 |
+    | `ImageDataFormat.MVTEC_LOCO` | `"mvtec_loco"` | MVTec LOCO |
+    | `ImageDataFormat.REAL_IAD` | `"realiad"` | Real-IAD |
+    | `ImageDataFormat.TABULAR` | `"tabular"` | Custom tabular CSV |
+    | `ImageDataFormat.VAD` | `"vad"` | Valeo anomaly detection |
+    | `ImageDataFormat.VISA` | `"visa"` | Visual Anomaly (VisA) |
+  </Accordion>
+
+  <Accordion title="Video formats">
+    | Enum value | String key | Dataset |
+    |---|---|---|
+    | `VideoDataFormat.AVENUE` | `"avenue"` | CUHK Avenue |
+    | `VideoDataFormat.SHANGHAITECH` | `"shanghaitech"` | ShanghaiTech Campus |
+    | `VideoDataFormat.UCSDPED` | `"ucsdped"` | UCSD Pedestrian |
+  </Accordion>
+
+  <Accordion title="Depth formats">
+    | Enum value | String key | Dataset |
+    |---|---|---|
+    | `DepthDataFormat.MVTEC_3D` | `"mvtec_3d"` | MVTec 3D-AD |
+    | `DepthDataFormat.FOLDER_3D` | `"folder_3d"` | Custom folder (RGB-D) |
+    | `DepthDataFormat.ADAM_3D` | `"adam_3d"` | 3D-ADAM |
+  </Accordion>
+</AccordionGroup>
+
+## The `get_datamodule` factory function
+
+`get_datamodule` lets you instantiate any datamodule from a dictionary or OmegaConf config, making it easy to configure datasets from YAML files.
+
+```python
+from anomalib.data import get_datamodule
+
+# From a plain dictionary
+datamodule = get_datamodule({
+    "data": {
+        "class_path": "MVTecAD",
+        "init_args": {
+            "root": "./datasets/MVTecAD",
+            "category": "bottle",
+            "train_batch_size": 16,
+        }
+    }
+})
+
+datamodule.setup()
+```
+
+You can also load from a YAML config file using `AnomalibDataModule.from_config`:
+
+```python
+from anomalib.data import AnomalibDataModule
+
+datamodule = AnomalibDataModule.from_config("configs/data/mvtec.yaml")
+```
+
+An equivalent YAML config looks like:
+
+```yaml
+class_path: anomalib.data.MVTecAD
+init_args:
+  root: ./datasets/MVTecAD
+  category: bottle
+  train_batch_size: 32
+  eval_batch_size: 32
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Benchmark datasets" icon="database" href="/datasets/benchmark-datasets">
+    Browse all built-in datasets organised by modality.
+  </Card>
+  <Card title="Using custom data" icon="folder-open" href="/datasets/custom-datasets">
+    Load your own images with the Folder datamodule or a custom dataset class.
+  </Card>
+</CardGroup>

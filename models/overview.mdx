@@ -1,0 +1,216 @@
+---
+title: "Model overview"
+description: "How Anomalib models work, which learning paradigms they support, and how to choose the right model for your task."
+keywords: ["anomaly detection", "model", "patchcore", "padim", "one-class", "zero-shot", "few-shot", "get_model", "list_models"]
+---
+
+Anomalib provides 20+ anomaly detection models for images and video. Every model is a PyTorch Lightning module that plugs into the same `Engine` API, so you can swap algorithms without changing your training or inference code.
+
+<CardGroup cols={2}>
+  <Card title="Image models" icon="image" href="/models/image-models">
+    22 algorithms for detecting anomalies in still images. Covers one-class, zero-shot, and few-shot learning.
+  </Card>
+  <Card title="Video models" icon="video" href="/models/video-models">
+    2 algorithms for detecting anomalies in video sequences, using spatio-temporal features.
+  </Card>
+</CardGroup>
+
+## The AnomalibModule base class
+
+Every model in Anomalib inherits from `AnomalibModule`, which extends PyTorch Lightning's `LightningModule`. This base class handles:
+
+- **Pre-processing** — Resizing and normalizing inputs before they reach the model
+- **Post-processing** — Converting raw scores into anomaly predictions
+- **Evaluation** — Computing image-level and pixel-level AUROC and F1
+- **Visualization** — Generating anomaly map overlays
+- **Export** — Exporting to ONNX, OpenVINO, or TorchScript
+
+You never need to call these components directly during normal training and inference — the `Engine` manages the full pipeline.
+
+```python
+from anomalib.models.components.base import AnomalibModule
+
+# Every model exposes the same interface
+model = AnomalibModule(
+    pre_processor=True,   # True = use default, False = disable, or pass a custom instance
+    post_processor=True,
+    evaluator=True,
+    visualizer=True,
+)
+```
+
+## Learning paradigms
+
+Anomalib models declare their learning type through the `learning_type` property. This property determines how the model expects to be trained and what data it needs.
+
+<AccordionGroup>
+  <Accordion title="ONE_CLASS — train on normal samples only">
+    The model learns the distribution of normal images and flags anything that deviates as anomalous. No anomaly examples are needed during training.
+
+    This is the most common paradigm and covers the majority of Anomalib models including PatchCore, PaDiM, STFPM, EfficientAD, and DRAEM.
+
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    datamodule = MVTecAD()       # only normal images used for training
+    model = Patchcore()
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+  <Accordion title="ZERO_SHOT — no training required">
+    The model uses a pretrained vision-language model to detect anomalies without any task-specific training. You provide a class name, and the model uses prompt engineering to identify what is normal.
+
+    Models: `WinClip` (with `k_shot=0`), `VlmAd` (with `k_shot=0`)
+
+    ```python
+    from anomalib.models import WinClip
+    from anomalib.engine import Engine
+
+    model = WinClip(class_name="hazelnut")  # k_shot=0 by default
+    engine = Engine()
+    engine.test(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+  <Accordion title="FEW_SHOT — train on a small number of normal images">
+    The model uses a small set of reference normal images to calibrate its anomaly scores. No gradient training is involved — the reference images are stored and used at inference time.
+
+    Models: `WinClip` (with `k_shot > 0`), `VlmAd` (with `k_shot > 0`), `AnomalyDINO`
+
+    ```python
+    from anomalib.models import WinClip
+
+    # Use 5 reference images for few-shot detection
+    model = WinClip(k_shot=5, class_name="hazelnut")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Task types
+
+All models support anomaly **classification** (image-level score) and most support anomaly **segmentation** (pixel-level anomaly map). The `TaskType` enum controls which output the post-processor targets:
+
+| Task | Output | Use when |
+|------|--------|----------|
+| `CLASSIFICATION` | `pred_score`, `pred_label` | You only need pass/fail per image |
+| `SEGMENTATION` | `anomaly_map`, `pred_mask` | You need to locate the anomaly |
+
+## Listing and loading models
+
+Use `list_models()` to discover available models and `get_model()` to instantiate any of them by name.
+
+<Tabs>
+  <Tab title="list_models()">
+    ```python
+    from anomalib.models import list_models
+
+    # Snake case names (default)
+    models = list_models(case="snake")
+    print(sorted(models))
+    # ['ai_vad', 'anomaly_dino', 'cfa', 'cflow', ...]
+
+    # Original PascalCase class names
+    models = list_models(case="pascal")
+    print(sorted(models))
+    # ['AiVad', 'AnomalyDINO', 'Cfa', 'Cflow', ...]
+    ```
+  </Tab>
+  <Tab title="get_model() by name">
+    ```python
+    from anomalib.models import get_model
+
+    # Instantiate by string name (snake_case or PascalCase)
+    model = get_model("patchcore")
+    model = get_model("efficient_ad")
+    model = get_model("patchcore", num_neighbors=10)
+    ```
+  </Tab>
+  <Tab title="get_model() with config dict">
+    ```python
+    from anomalib.models import get_model
+
+    # Instantiate using a config dictionary
+    model = get_model({"class_path": "Padim"})
+
+    model = get_model({
+        "class_path": "Patchcore",
+        "init_args": {"backbone": "resnet18", "coreset_sampling_ratio": 0.05},
+    })
+
+    # Fully qualified class path
+    model = get_model({
+        "class_path": "anomalib.models.Padim",
+        "init_args": {"backbone": "wide_resnet50_2"},
+    })
+    ```
+  </Tab>
+  <Tab title="get_model() from YAML config">
+    ```python
+    from anomalib.models.components.base import AnomalibModule
+
+    model = AnomalibModule.from_config("configs/model/patchcore.yaml")
+
+    # Override config values at load time
+    model = AnomalibModule.from_config(
+        "configs/model/patchcore.yaml",
+        model__backbone="resnet18",
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Choosing a model
+
+The right model depends on your constraints. The table below gives a rough guide based on typical results on MVTec AD.
+
+| Model | Speed | Accuracy | Learning type | Memory | Best for |
+|-------|-------|----------|---------------|--------|----------|
+| **PatchCore** | Medium | Very high | ONE_CLASS | High | Best accuracy baseline |
+| **PaDiM** | Medium | High | ONE_CLASS | Medium | Good accuracy at lower memory |
+| **EfficientAD** | Very fast | High | ONE_CLASS | Low | Production; latency-sensitive |
+| **STFPM** | Fast | High | ONE_CLASS | Low | Fast student-teacher baseline |
+| **Fastflow** | Fast | High | ONE_CLASS | Low | Normalizing flow baseline |
+| **DRAEM** | Medium | High | ONE_CLASS | Low | Texture anomalies |
+| **WinCLIP** | Fast | Medium | ZERO/FEW_SHOT | Low | No training data available |
+| **VlmAd** | Slow | Medium | ZERO/FEW_SHOT | Low | LLM-based visual reasoning |
+| **Dinomaly** | Medium | High | ONE_CLASS | Medium | ViT-based reconstruction |
+| **AnomalyDINO** | Fast | High | ONE_CLASS | Medium | DINOv2 memory bank |
+
+<Tip>
+  Start with **PatchCore** as your accuracy baseline. If inference speed is critical, try **EfficientAD**. If you have no normal training data, use **WinCLIP** in zero-shot mode.
+</Tip>
+
+## Common model components
+
+All models share these configurable components:
+
+```python
+from anomalib.pre_processing import PreProcessor
+from anomalib.post_processing import PostProcessor
+from anomalib.metrics.evaluator import Evaluator
+from anomalib.visualization import ImageVisualizer
+from torchvision.transforms.v2 import Compose, Normalize, Resize
+
+# Custom pre-processor (default resizes to 256×256 and applies ImageNet normalization)
+pre_processor = PreProcessor(
+    transform=Compose([
+        Resize((512, 512), antialias=True),
+        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+)
+
+from anomalib.models import Patchcore
+
+model = Patchcore(
+    pre_processor=pre_processor,
+    post_processor=True,   # use default
+    evaluator=True,
+    visualizer=True,
+)
+```
+
+<Note>
+  Pass `False` for any component to disable it entirely. This is useful when you want full control over data transformations or evaluation logic.
+</Note>

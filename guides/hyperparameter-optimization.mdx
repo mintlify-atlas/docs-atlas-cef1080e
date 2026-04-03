@@ -1,0 +1,147 @@
+---
+title: "Hyperparameter optimization"
+description: "Run automated hyperparameter sweeps with Weights & Biases or Comet.ml to find the best model configuration."
+keywords: ["hyperparameter optimization", "HPO", "wandb", "comet", "sweep", "tuning"]
+---
+
+Anomalib supports hyperparameter optimization (HPO) via [Weights & Biases sweeps](https://docs.wandb.ai/guides/sweeps) and [Comet.ml optimizer](https://www.comet.com/docs/v2/guides/experiment-management/). HPO automates the search for the best combination of model and training parameters.
+
+## Prerequisites
+
+Install the logger extras before running HPO:
+
+```bash
+pip install "anomalib[loggers]"
+```
+
+## Weights & Biases
+
+<Steps>
+  <Step title="Create a sweep config file">
+    Define the search space in a YAML file. The following example searches over Patchcore backbone choices and backbone layers on the MVTec bottle category:
+
+    ```yaml
+    # tools/hpo/configs/wandb.yaml
+    sweep:
+      name: patchcore-hpo
+      metric:
+        name: image_AUROC
+        goal: maximize
+      method: bayes
+
+    model:
+      class_path: anomalib.models.Patchcore
+      init_args:
+        backbone:
+          values:
+            - wide_resnet50_2
+            - resnet18
+        layers:
+          values:
+            - [layer2, layer3]
+            - [layer3]
+
+    data:
+      class_path: anomalib.data.MVTecAD
+      init_args:
+        category: bottle
+    ```
+  </Step>
+
+  <Step title="Log in to W&B">
+    ```bash
+    wandb login
+    ```
+  </Step>
+
+  <Step title="Launch the sweep">
+    ```bash
+    anomalib hpo --backend WANDB --sweep_config tools/hpo/configs/wandb.yaml
+    ```
+
+    Anomalib creates a W&B sweep and launches agents that run training jobs according to the config.
+  </Step>
+
+  <Step title="Monitor results">
+    Open the W&B dashboard to view all runs and compare metrics in real time. The sweep coordinator uses the `method` strategy (`bayes`, `grid`, or `random`) to select the next hyperparameter combination.
+  </Step>
+</Steps>
+
+## Comet.ml
+
+<Steps>
+  <Step title="Create a Comet optimizer config">
+    ```yaml
+    # tools/hpo/configs/comet.yaml
+    optimizer:
+      name: patchcore-comet-hpo
+      algorithm: bayes
+      parameters:
+        model.init_args.backbone:
+          type: categorical
+          values:
+            - wide_resnet50_2
+            - resnet18
+
+    model:
+      class_path: anomalib.models.Patchcore
+
+    data:
+      class_path: anomalib.data.MVTecAD
+      init_args:
+        category: bottle
+    ```
+  </Step>
+
+  <Step title="Set your Comet API key">
+    ```bash
+    export COMET_API_KEY="your-api-key"
+    ```
+  </Step>
+
+  <Step title="Launch the sweep">
+    ```bash
+    anomalib hpo --backend COMET --sweep_config tools/hpo/configs/comet.yaml
+    ```
+  </Step>
+</Steps>
+
+## Key hyperparameters to tune
+
+<CardGroup cols={2}>
+  <Card title="Backbone" icon="network-wired">
+    The feature extractor backbone (e.g. `resnet18`, `wide_resnet50_2`) has a large impact on accuracy and speed. Lighter backbones are faster but may reduce AUROC.
+  </Card>
+  <Card title="Layers" icon="layer-group">
+    For feature-extraction models like Patchcore and Padim, the chosen layers control the feature depth and spatial resolution. Deeper layers capture semantics; earlier layers capture textures.
+  </Card>
+  <Card title="Image size" icon="image">
+    Larger input sizes improve detection of small defects but increase memory and inference time. Common values: `256`, `320`, `512`.
+  </Card>
+  <Card title="Coreset sampling" icon="database">
+    Patchcore uses a coreset to subsample the memory bank. The `coreset_sampling_ratio` (0.0–1.0) trades accuracy for memory and speed.
+  </Card>
+</CardGroup>
+
+## Sweep methods
+
+| Method | Description | Best for |
+|---|---|---|
+| `bayes` | Bayesian optimization — uses previous results to guide next sample. | Continuous parameters, expensive evaluations. |
+| `grid` | Exhaustive search over all parameter combinations. | Small search spaces with discrete values. |
+| `random` | Random sampling from the search space. | Large search spaces as a baseline. |
+
+<Tip>
+  Start with `random` search to understand the landscape quickly, then switch to `bayes` to exploit the best regions found.
+</Tip>
+
+## Tracked metrics
+
+By default, Anomalib logs the following metrics that you can use as the sweep objective:
+
+- `image_AUROC` — area under the ROC curve at image level
+- `image_F1Score` — F1 score at image level
+- `pixel_AUROC` — area under the ROC curve at pixel level (segmentation models)
+- `pixel_F1Score` — F1 score at pixel level (segmentation models)
+
+Set `goal: maximize` for AUROC and F1 metrics.

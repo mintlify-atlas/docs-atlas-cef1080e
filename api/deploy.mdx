@@ -1,0 +1,231 @@
+---
+title: "Deployment & Export"
+description: "Export trained models to PyTorch, ONNX, or OpenVINO formats, and run inference with the provided inferencers."
+keywords: ["deploy", "export", "OpenVINO", "ONNX", "TorchInferencer", "OpenVINOInferencer", "ExportType", "inference"]
+---
+
+Anomalib provides a unified export API through `engine.export()` and lightweight inferencers for running predictions outside of the Lightning training loop.
+
+---
+
+## Export types
+
+The `ExportType` enum specifies the target format when exporting a model.
+
+```python
+from anomalib.deploy import ExportType
+
+ExportType.TORCH      # PyTorch checkpoint (.pt)
+ExportType.ONNX       # ONNX format (.onnx)
+ExportType.OPENVINO   # OpenVINO IR (.xml + .bin)
+```
+
+---
+
+## Exporting a model
+
+Use `engine.export()` after training to convert a model to the target format. The export saves weights and metadata to the output directory.
+
+```python
+from anomalib.deploy import ExportType
+from anomalib.engine import Engine
+from anomalib.models import Patchcore
+
+engine = Engine()
+model = Patchcore()
+
+engine.export(
+    model=model,
+    export_type=ExportType.OPENVINO,
+    ckpt_path="results/Patchcore/MVTecAD/latest/weights/lightning/model.ckpt",
+)
+```
+
+Or via CLI:
+
+```bash
+anomalib export \
+  --model Patchcore \
+  --ckpt_path path/to/model.ckpt \
+  --export_type openvino
+```
+
+<ParamField path="model" type="AnomalibModule" required>
+  The model instance to export. Must match the checkpoint being loaded.
+</ParamField>
+
+<ParamField path="export_type" type="ExportType" required>
+  Target export format: `ExportType.TORCH`, `ExportType.ONNX`, or `ExportType.OPENVINO`.
+</ParamField>
+
+<ParamField path="ckpt_path" type="string | Path" required>
+  Path to a Lightning checkpoint (`.ckpt`) used to restore model weights before exporting.
+</ParamField>
+
+<ParamField path="export_root" type="string | Path | None" default="None">
+  Directory where exported files are written. Defaults to the engine's `default_root_dir`.
+</ParamField>
+
+<ParamField path="datamodule" type="AnomalibDataModule | None" default="None">
+  Dataset used for calibration when exporting with quantization (e.g., `INT8_PTQ`). Not required for unquantized exports.
+</ParamField>
+
+---
+
+## OpenVINO compression
+
+When exporting to OpenVINO, you can optionally compress weights or quantize the entire model using the `CompressionType` enum.
+
+```python
+from anomalib.deploy import ExportType, CompressionType
+
+engine.export(
+    model=model,
+    export_type=ExportType.OPENVINO,
+    compression_type=CompressionType.INT8_PTQ,
+    ckpt_path="path/to/model.ckpt",
+    datamodule=datamodule,   # required for PTQ calibration
+)
+```
+
+| Value | Description |
+|---|---|
+| `CompressionType.FP16` | Compress all weights to FP16 precision. |
+| `CompressionType.INT8` | Quantize weights to INT8; dequantize before inference. |
+| `CompressionType.INT8_PTQ` | Full INT8 post-training quantization; inference runs in INT8. Requires a calibration dataset. |
+| `CompressionType.INT8_ACQ` | Accuracy-control INT8 quantization; mixed precision where quantization would degrade quality. |
+
+<Note>
+  `INT8_PTQ` and `INT8_ACQ` require the `openvino` and `nncf` packages (install with `pip install "anomalib[openvino]"`) and a `datamodule` argument for calibration.
+</Note>
+
+---
+
+## OpenVINO inferencer
+
+`OpenVINOInferencer` runs inference on models exported to OpenVINO IR format (`.xml` + `.bin`). Requires `openvino` to be installed.
+
+```python
+from anomalib.deploy import OpenVINOInferencer
+
+inferencer = OpenVINOInferencer(
+    path="results/Patchcore/MVTecAD/latest/weights/openvino/model.xml",
+    device="CPU",
+)
+
+prediction = inferencer.predict("path/to/image.jpg")
+print(prediction.pred_score)   # anomaly score
+print(prediction.anomaly_map)  # pixel-level anomaly map
+```
+
+Input can be a file path, PIL `Image`, NumPy array, or PyTorch tensor:
+
+```python
+from PIL import Image
+import numpy as np
+
+# From PIL image
+prediction = inferencer.predict(Image.open("image.jpg"))
+
+# From numpy array (HWC float32 in [0, 1])
+prediction = inferencer.predict(np.random.rand(256, 256, 3).astype("float32"))
+```
+
+<ParamField path="path" type="string | Path | tuple[bytes, bytes]" required>
+  Path to the OpenVINO `.xml` model file, an `.onnx` file, or a tuple of `(xml_bytes, bin_bytes)` for in-memory loading.
+</ParamField>
+
+<ParamField path="device" type="string | None" default="AUTO">
+  OpenVINO inference device. Options: `"AUTO"`, `"CPU"`, `"GPU"`, `"NPU"`. `"AUTO"` selects the best available device.
+</ParamField>
+
+<ParamField path="config" type="dict | None" default="None">
+  Optional OpenVINO plugin configuration dictionary passed to `core.compile_model()`.
+</ParamField>
+
+The inferencer returns a `NumpyImageBatch` containing `anomaly_map`, `pred_score`, and the processed input `image`.
+
+---
+
+## Torch inferencer
+
+`TorchInferencer` runs inference using a PyTorch `.pt` checkpoint saved by Anomalib's export pipeline.
+
+<Warning>
+  `TorchInferencer` is a legacy inferencer. For most use cases, prefer `engine.predict()`, which handles pre/post-processing and supports all data formats directly.
+</Warning>
+
+<Warning>
+  PyTorch model loading relies on Python's pickle module and can execute arbitrary code. Only load checkpoints from trusted sources. You must set `TRUST_REMOTE_CODE=1` in your environment to proceed.
+</Warning>
+
+```bash
+export TRUST_REMOTE_CODE=1
+```
+
+```python
+from anomalib.deploy import TorchInferencer
+
+inferencer = TorchInferencer(
+    path="results/Patchcore/MVTecAD/latest/weights/torch/model.pt",
+    device="cpu",
+)
+
+prediction = inferencer.predict("path/to/image.jpg")
+print(prediction.pred_score)
+print(prediction.anomaly_map)
+```
+
+Input can be a file path string, PIL `Image`, NumPy array, or `torch.Tensor`:
+
+```python
+import torch
+
+image = torch.rand(3, 256, 256)
+prediction = inferencer.predict(image)
+```
+
+<ParamField path="path" type="string | Path" required>
+  Path to a `.pt` or `.pth` checkpoint file produced by `engine.export(export_type=ExportType.TORCH)`.
+</ParamField>
+
+<ParamField path="device" type="string" default="auto">
+  Inference device. Options: `"auto"`, `"cpu"`, `"cuda"`, `"xpu"`. `"auto"` selects CUDA if available, then XPU, then CPU.
+</ParamField>
+
+The inferencer returns an `ImageBatch` containing the model's raw outputs including `anomaly_map` and `pred_score`.
+
+---
+
+## Recommended inference workflow
+
+For production use, the recommended approach is to export once and use `OpenVINOInferencer` for serving:
+
+<Steps>
+  <Step title="Train and export">
+    ```python
+    from anomalib.deploy import ExportType
+    from anomalib.engine import Engine
+    from anomalib.models import Patchcore
+
+    engine = Engine()
+    model = Patchcore()
+    engine.fit(model=model, datamodule=datamodule)
+    engine.export(
+        model=model,
+        export_type=ExportType.OPENVINO,
+        ckpt_path="path/to/model.ckpt",
+    )
+    ```
+  </Step>
+  <Step title="Run inference">
+    ```python
+    from anomalib.deploy import OpenVINOInferencer
+
+    inferencer = OpenVINOInferencer("weights/openvino/model.xml", device="CPU")
+    result = inferencer.predict("test_image.jpg")
+
+    print(f"Anomaly score: {result.pred_score:.3f}")
+    ```
+  </Step>
+</Steps>

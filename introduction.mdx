@@ -1,0 +1,99 @@
+---
+title: "Introduction"
+description: "Anomalib is a deep learning library for benchmarking, developing, and deploying state-of-the-art anomaly detection algorithms."
+keywords: ["anomaly detection", "deep learning", "computer vision", "one-class learning", "zero-shot", "few-shot"]
+---
+
+Anomalib is a deep learning library that collects state-of-the-art anomaly detection algorithms for benchmarking on both public and private datasets. It provides ready-to-use model implementations, a standardized training and evaluation pipeline, and tools for developing custom solutions — all focused on visual anomaly detection in images and video.
+
+<Note>
+  Anomalib requires **Python 3.10–3.12** and **PyTorch 2.6+** (minimum 2.6.0 due to CVE-2025-32434). PyTorch Lightning 2.6+ is also required. See the [installation guide](/installation) for hardware-specific instructions.
+</Note>
+
+## What problems Anomalib solves
+
+Anomaly detection is the task of identifying samples that deviate from a learned distribution of normal data. Unlike standard classification, anomalous samples are typically rare, diverse, and not known at training time. Anomalib addresses this by:
+
+- Providing models that learn exclusively from **normal (defect-free) samples** and flag deviations at inference time.
+- Supporting **zero-shot** and **few-shot** regimes where labelled anomalous data is scarce or unavailable.
+- Offering both **image-level classification** (is this image anomalous?) and **pixel-level segmentation** (where is the anomaly?).
+- Enabling deployment to **edge hardware** through OpenVINO export and an optional no-code Studio UI.
+
+## Key concepts
+
+### Learning types
+
+Anomalib models are characterized by how they learn from training data. The `LearningType` enum in `anomalib` defines three paradigms:
+
+| Learning type | Value | Description |
+|---|---|---|
+| `ONE_CLASS` | `"one_class"` | Model trains on normal samples only and detects deviations at inference time. The most common paradigm. |
+| `ZERO_SHOT` | `"zero_shot"` | Model requires no task-specific training; it uses pretrained vision–language representations (e.g. WinCLIP). |
+| `FEW_SHOT` | `"few_shot"` | Model trains on a small number of labelled samples. Useful when a handful of reference images is available. |
+
+```python
+from anomalib import LearningType
+
+print(LearningType.ONE_CLASS)   # 'one_class'
+print(LearningType.ZERO_SHOT)   # 'zero_shot'
+print(LearningType.FEW_SHOT)    # 'few_shot'
+```
+
+### Task types
+
+The `TaskType` enum controls the model's output format and the evaluation metrics applied:
+
+| Task type | Value | Description |
+|---|---|---|
+| `CLASSIFICATION` | `"classification"` | Produces an image-level anomaly score. No pixel-level output. |
+| `SEGMENTATION` | `"segmentation"` | Produces both an image-level score and a pixel-wise anomaly map. |
+
+```python
+from anomalib import TaskType
+
+print(TaskType.CLASSIFICATION)  # 'classification'
+print(TaskType.SEGMENTATION)    # 'segmentation'
+```
+
+### Image vs. video anomaly detection
+
+Anomalib supports both input modalities:
+
+- **Image models** — detect anomalies in individual frames or static images. The majority of the model library targets this mode.
+- **Video models** — detect anomalies across temporal sequences. Available models include AI-VAD and FUVAS.
+
+## Architecture overview
+
+Anomalib is organized into four layers that you compose to build a pipeline:
+
+<CardGroup cols={2}>
+  <Card title="Engine" icon="gears" href="/api/engine">
+    Wraps PyTorch Lightning's `Trainer` with anomaly-specific logic. Handles training, validation, testing, prediction, and model export. The primary entry point for all workflows.
+  </Card>
+  <Card title="Models" icon="brain" href="/models/overview">
+    20+ algorithm implementations for image and video anomaly detection. Each model exposes a consistent `AnomalibModule` interface and declares its required `LearningType` and `TaskType`.
+  </Card>
+  <Card title="Data" icon="database" href="/datasets/overview">
+    Datamodules for standard benchmark datasets (MVTec AD, VisA, BeanTech, etc.) and a `Folder` datamodule for custom datasets. All datamodules extend `AnomalibDataModule`.
+  </Card>
+  <Card title="Deploy" icon="rocket" href="/guides/deployment">
+    Export trained models to OpenVINO IR, ONNX, or TorchScript. The `OpenVINOInferencer` and `TorchInferencer` classes provide lightweight inference without Lightning.
+  </Card>
+</CardGroup>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="bolt" href="/quickstart">
+    Train and run inference on your first model in under five minutes.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Anomalib with the correct hardware backend for your system.
+  </Card>
+  <Card title="Training guide" icon="dumbbell" href="/guides/training">
+    Learn how to customize the Engine, models, and data for your use case.
+  </Card>
+  <Card title="Model library" icon="list" href="/models/overview">
+    Browse all 20+ available algorithms and their benchmark results.
+  </Card>
+</CardGroup>

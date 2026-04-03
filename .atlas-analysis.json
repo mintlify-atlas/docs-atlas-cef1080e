@@ -1,24 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Anomalib",
+  "projectType": "ai-ml",
+  "projectName": "Anomalib",
+  "projectDescription": "A deep learning library for benchmarking, developing, and deploying state-of-the-art anomaly detection algorithms with support for image and video data.",
   "theme": "palm",
-  "colors": {
-    "primary": "#0e6cb5",
-    "light": "#7aacd4",
-    "dark": "#5d6c75"
-  },
-  "favicon": "https://media.brand.dev/8b5b78ca-49cb-47af-8f06-284804366257.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/open-edge-platform/anomalib"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/open-edge-platform/anomalib"
-    }
-  },
+  "primaryColor": "#0e6cb5",
+  "lightColor": "#7aacd4",
+  "darkColor": "#5d6c75",
   "navigation": {
     "tabs": [
       {
@@ -98,5 +85,37 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "20+ state-of-the-art anomaly detection models (PatchCore, PaDiM, EfficientAD, WinCLIP, etc.)",
+    "Dual Python API and CLI interface for training, inference, and benchmarking",
+    "PyTorch Lightning-based implementations with minimal boilerplate",
+    "OpenVINO export for accelerated inference on Intel hardware",
+    "Support for image, video, and depth modalities",
+    "One-class, zero-shot, and few-shot learning paradigms",
+    "Hyperparameter optimization with Weights & Biases and Comet.ml",
+    "Built-in benchmark datasets (MVTecAD, MVTecAD2, VisA, BTech, etc.)",
+    "Anomalib Studio: low/no-code web UI for training and deployment",
+    "Tiled ensemble pipeline for large-image processing"
+  ],
+  "publicApiSurface": [
+    "anomalib.engine.Engine",
+    "anomalib.models.Patchcore",
+    "anomalib.models.Padim",
+    "anomalib.models.EfficientAd",
+    "anomalib.models.WinClip",
+    "anomalib.models.get_model()",
+    "anomalib.models.list_models()",
+    "anomalib.data.MVTecAD",
+    "anomalib.data.MVTecAD2",
+    "anomalib.data.Folder",
+    "anomalib.data.get_datamodule()",
+    "anomalib.LearningType",
+    "anomalib.TaskType",
+    "anomalib.deploy.ExportType",
+    "anomalib.metrics.AUROC",
+    "anomalib.metrics.AUPRO",
+    "anomalib.pipelines.benchmark",
+    "anomalib CLI: train, test, predict, export, benchmark, hpo"
+  ]
 }

@@ -1,0 +1,264 @@
+---
+title: "Using custom data"
+description: "Train anomaly detection models on your own image dataset using the Folder datamodule or a custom AnomalibDataset subclass."
+keywords: ["custom data", "folder", "dataset", "datamodule", "segmentation", "classification", "synthetic anomalies"]
+---
+
+Anomalib's `Folder` datamodule lets you load images from any directory structure without writing custom dataset code. For more control, you can also subclass `AnomalibDataModule` directly.
+
+## Expected directory structure
+
+Organize your dataset so that normal and abnormal images are in separate directories. Segmentation masks are optional:
+
+```
+datasets/
+└── my_product/
+    ├── good/           # normal training images
+    │   ├── 001.png
+    │   └── 002.png
+    ├── defect/         # abnormal images (for test/validation)
+    │   ├── 003.png
+    │   └── 004.png
+    └── masks/          # ground-truth masks (optional, for segmentation)
+        ├── 003.png
+        └── 004.png
+```
+
+<Note>
+  The directory names (`good`, `defect`, `masks`) are configurable. You set them explicitly when creating the `Folder` datamodule.
+</Note>
+
+## Segmentation dataset
+
+Use this when you have abnormal images **and** pixel-level masks.
+
+<Tabs>
+  <Tab title="Python API">
+    ```python
+    from anomalib.data import Folder
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    datamodule = Folder(
+        name="my_product",
+        root="./datasets/my_product",
+        normal_dir="good",
+        abnormal_dir="defect",
+        mask_dir="masks",
+    )
+
+    model = Patchcore()
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+
+    Access the dataloaders after setup:
+
+    ```python
+    datamodule.setup()
+
+    train_loader = datamodule.train_dataloader()
+    test_loader = datamodule.test_dataloader()
+
+    batch = next(iter(train_loader))
+    print(batch.image.shape)     # torch.Size([32, 3, 256, 256])
+    print(batch.gt_mask.shape)   # torch.Size([32, 256, 256])
+    ```
+  </Tab>
+  <Tab title="CLI">
+    Save the following config as `segmentation.yaml`:
+
+    ```yaml
+    data:
+      class_path: anomalib.data.Folder
+      init_args:
+        name: my_product
+        root: ./datasets/my_product
+        normal_dir: good
+        abnormal_dir: defect
+        mask_dir: masks
+    ```
+
+    Train with:
+
+    ```bash
+    anomalib train --data segmentation.yaml --model anomalib.models.Patchcore
+    ```
+  </Tab>
+</Tabs>
+
+## Classification dataset
+
+Use this when you have abnormal images but **no pixel-level masks**.
+
+<Tabs>
+  <Tab title="Python API">
+    ```python
+    from anomalib.data import Folder
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    datamodule = Folder(
+        name="my_product",
+        root="./datasets/my_product",
+        normal_dir="good",
+        abnormal_dir="defect",
+        # no mask_dir — classification only
+    )
+
+    model = Patchcore()
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+
+    Batches from a classification datamodule do not include a `mask` key:
+
+    ```python
+    datamodule.setup()
+    batch = next(iter(datamodule.train_dataloader()))
+    print(batch.keys())
+    # dict_keys(['image', 'label', 'image_path'])
+    ```
+  </Tab>
+  <Tab title="CLI">
+    ```yaml
+    data:
+      class_path: anomalib.data.Folder
+      init_args:
+        name: my_product
+        root: ./datasets/my_product
+        normal_dir: good
+        abnormal_dir: defect
+    ```
+
+    ```bash
+    anomalib train \
+      --data classification.yaml \
+      --model anomalib.models.Patchcore \
+      --task CLASSIFICATION
+    ```
+  </Tab>
+</Tabs>
+
+## Training with only normal images
+
+When you only have normal images, anomalib can generate synthetic anomalies at runtime to enable validation and testing.
+
+<Tabs>
+  <Tab title="Python API">
+    ```python
+    from anomalib.data import Folder
+    from anomalib.data.utils import TestSplitMode
+
+    datamodule = Folder(
+        name="my_product",
+        root="./datasets/my_product",
+        normal_dir="good",
+        test_split_mode=TestSplitMode.SYNTHETIC,
+        test_split_ratio=0.2,
+    )
+    ```
+  </Tab>
+  <Tab title="CLI">
+    ```yaml
+    data:
+      class_path: anomalib.data.Folder
+      init_args:
+        name: my_product
+        root: ./datasets/my_product
+        normal_dir: good
+        test_split_mode: SYNTHETIC
+        test_split_ratio: 0.2
+    ```
+
+    ```bash
+    anomalib train --data synthetic.yaml --model anomalib.models.Patchcore
+    ```
+  </Tab>
+</Tabs>
+
+## Full `Folder` parameter reference
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | required | Dataset name used for logging and saving. |
+| `normal_dir` | `str \| Path` | required | Directory with normal training images. |
+| `root` | `str \| Path \| None` | `None` | Root directory containing all subdirectories. |
+| `abnormal_dir` | `str \| Path \| None` | `None` | Directory with abnormal images. |
+| `normal_test_dir` | `str \| Path \| None` | `None` | Directory with normal test images. |
+| `mask_dir` | `str \| Path \| None` | `None` | Directory with segmentation masks. |
+| `normal_split_ratio` | `float` | `0.2` | Fraction of normal images held out for testing when `normal_test_dir` is not provided. |
+| `train_batch_size` | `int` | `32` | Training batch size. |
+| `eval_batch_size` | `int` | `32` | Validation and test batch size. |
+| `num_workers` | `int` | `8` | Number of data loader workers. |
+| `test_split_mode` | `TestSplitMode` | `FROM_DIR` | How to obtain the test subset (`FROM_DIR` or `SYNTHETIC`). |
+| `test_split_ratio` | `float` | `0.2` | Fraction of images used for testing when splitting from the training set. |
+| `val_split_mode` | `ValSplitMode` | `FROM_TEST` | How to obtain the validation subset. |
+| `val_split_ratio` | `float` | `0.5` | Fraction of test images used for validation. |
+| `seed` | `int \| None` | `None` | Random seed for reproducible splits. |
+
+## Adding data augmentations
+
+Pass `torchvision.transforms.v2` transforms to the datamodule:
+
+```python
+from torchvision.transforms import v2
+from anomalib.data import Folder
+
+train_augmentations = v2.Compose([
+    v2.RandomHorizontalFlip(p=0.5),
+    v2.ColorJitter(brightness=0.2, contrast=0.2),
+])
+
+datamodule = Folder(
+    name="my_product",
+    root="./datasets/my_product",
+    normal_dir="good",
+    abnormal_dir="defect",
+    train_augmentations=train_augmentations,
+)
+```
+
+<Tip>
+  Use `train_augmentations` for training-time augmentations and `val_augmentations` / `test_augmentations` for evaluation. If you pass `augmentations`, it applies to all splits.
+</Tip>
+
+## Custom datamodule
+
+For datasets that require more control over loading logic, subclass `AnomalibDataModule`:
+
+```python
+from anomalib.data.datamodules.base.image import AnomalibDataModule
+from anomalib.data.datasets.base.image import AnomalibDataset
+from anomalib.data.utils import Split
+
+
+class MyDataset(AnomalibDataset):
+    def __init__(self, root, split):
+        super().__init__(name="my_dataset")
+        self.root = root
+        self.split = split
+        self._setup()
+
+    def _setup(self):
+        # Populate self.samples with a DataFrame containing
+        # columns: image_path, label, mask_path, split
+        ...
+
+
+class MyDataModule(AnomalibDataModule):
+    def __init__(self, root, **kwargs):
+        super().__init__(**kwargs)
+        self.root = root
+
+    def _setup(self, _stage=None):
+        self.train_data = MyDataset(root=self.root, split=Split.TRAIN)
+        self.test_data = MyDataset(root=self.root, split=Split.TEST)
+```
+
+Pass your custom datamodule to the engine the same way as any built-in datamodule:
+
+```python
+datamodule = MyDataModule(root="./datasets/my_dataset")
+engine.fit(model=Patchcore(), datamodule=datamodule)
+```

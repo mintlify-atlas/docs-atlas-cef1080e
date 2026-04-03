@@ -1,0 +1,610 @@
+---
+title: "Image anomaly detection models"
+description: "Complete reference for all 22 image anomaly detection models in Anomalib, including parameters, learning types, and usage examples."
+keywords: ["patchcore", "padim", "efficientad", "draem", "winclip", "stfpm", "fastflow", "cflow", "one-class", "zero-shot", "few-shot", "anomaly detection"]
+---
+
+Anomalib includes 22 image anomaly detection models covering a range of architectures and learning paradigms. All models share the same `Engine` training and inference API.
+
+## Quick comparison
+
+| Model | Class | Learning type | Approach |
+|-------|-------|---------------|----------|
+| AnomalyDINO | `AnomalyDINO` | ONE_CLASS | DINOv2 memory bank + kNN |
+| CFA | `Cfa` | ONE_CLASS | Coupled-hypersphere feature adaptation |
+| CFlow | `Cflow` | ONE_CLASS | Conditional normalizing flow |
+| CSFlow | `Csflow` | ONE_CLASS | Cross-scale normalizing flow |
+| DFKDE | `Dfkde` | ONE_CLASS | Deep feature kernel density estimation |
+| DFM | `Dfm` | ONE_CLASS | Deep feature modeling with PCA |
+| Dinomaly | `Dinomaly` | ONE_CLASS | DINOv2 feature reconstruction |
+| DRAEM | `Draem` | ONE_CLASS | Dual reconstruction with synthetic anomalies |
+| DSR | `Dsr` | ONE_CLASS | Dual subspace re-projection |
+| EfficientAD | `EfficientAd` | ONE_CLASS | Student-teacher knowledge distillation |
+| FastFlow | `Fastflow` | ONE_CLASS | 2D normalizing flow |
+| FRE | `Fre` | ONE_CLASS | Feature reconstruction error (tied autoencoder) |
+| GANomaly | `Ganomaly` | ONE_CLASS | Encoder-decoder GAN |
+| PaDiM | `Padim` | ONE_CLASS | Patch distribution modeling |
+| PatchCore | `Patchcore` | ONE_CLASS | Patch feature memory bank + kNN |
+| Reverse Distillation | `ReverseDistillation` | ONE_CLASS | Reverse knowledge distillation |
+| STFPM | `Stfpm` | ONE_CLASS | Student-teacher feature pyramid matching |
+| SuperSimpleNet | `Supersimplenet` | ONE_CLASS | Perlin noise augmentation + adapter |
+| UFlow | `Uflow` | ONE_CLASS | U-shaped normalizing flow |
+| UniNet | `UniNet` | ONE_CLASS | Student-teacher contrastive learning |
+| VLM-AD | `VlmAd` | ZERO_SHOT / FEW_SHOT | Vision-language model prompting |
+| WinCLIP | `WinClip` | ZERO_SHOT / FEW_SHOT | CLIP sliding-window detection |
+
+## Model details
+
+<AccordionGroup>
+  <Accordion title="AnomalyDINO">
+    AnomalyDINO is a memory-bank model that uses a pretrained DINOv2-Small vision transformer as its backbone. During training it stores patch embeddings from normal images. At inference it uses kNN search to find anomalous patches and scores images using the 99th percentile of pixel-wise distances.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [AnomalyDINO: Boosting Patch-based Few-shot Anomaly Detection with DINOv2](https://arxiv.org/abs/2405.14529)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `num_neighbours` | `1` | Number of nearest neighbors for anomaly scoring |
+    | `encoder_name` | `"dinov2_vits14"` | Pretrained DINOv2 encoder name |
+    | `masking` | `False` | Apply background masking during feature extraction |
+    | `coreset_subsampling` | `False` | Subsample the memory bank to reduce size |
+    | `sampling_ratio` | `0.1` | Fraction of embeddings to keep when subsampling |
+    | `precision` | `"float32"` | Computation precision (`"float32"` or `"float16"`) |
+
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import AnomalyDINO
+    from anomalib.engine import Engine
+
+    datamodule = MVTecAD(category="hazelnut")
+    model = AnomalyDINO(
+        encoder_name="dinov2_vits14",
+        num_neighbours=1,
+        masking=True,
+    )
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="CFA">
+    CFA (Coupled-hypersphere-based Feature Adaptation) detects anomalies by learning a target-oriented representation. It adapts pretrained CNN features to a hypersphere-based space, then scores anomalies by measuring how far patches deviate from the learned hypersphere.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [CFA: Coupled-hypersphere-based Feature Adaptation for Target-Oriented Anomaly Localization](https://arxiv.org/abs/2206.04325)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"wide_resnet50_2"` | Backbone CNN network |
+    | `gamma_c` | `1` | Centroid loss weight |
+    | `gamma_d` | `1` | Distance loss weight |
+    | `num_nearest_neighbors` | `3` | Neighbors for anomaly scoring |
+    | `num_hard_negative_features` | `3` | Hard negatives used in training |
+    | `radius` | `1e-5` | Initial hypersphere radius |
+
+    ```python
+    from anomalib.models import Cfa
+    from anomalib.engine import Engine
+
+    model = Cfa(backbone="wide_resnet50_2", num_nearest_neighbors=3)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="CFlow">
+    CFlow (Conditional Normalizing Flow) models the distribution of normal multi-scale features using a normalizing flow decoder conditioned on positional encodings. Anomaly scores are derived from the log-likelihood of test features under this distribution.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [CFLOW-AD: Real-Time Unsupervised Anomaly Detection with Localization via Conditional Normalizing Flows](https://arxiv.org/abs/2107.12571)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"wide_resnet50_2"` | Backbone CNN network |
+    | `layers` | `("layer2", "layer3", "layer4")` | Layers to extract features from |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+    | `fiber_batch_size` | `64` | Batch size for the normalizing flow |
+    | `decoder` | `"freia-cflow"` | Decoder architecture |
+    | `condition_vector` | `128` | Conditioning vector size |
+    | `coupling_blocks` | `8` | Number of coupling blocks |
+    | `clamp_alpha` | `1.9` | Clamping value for affine coupling |
+    | `permute_soft` | `False` | Use soft permutations |
+    | `lr` | `0.0001` | Learning rate |
+
+    ```python
+    from anomalib.models import Cflow
+    from anomalib.engine import Engine
+
+    model = Cflow(backbone="wide_resnet50_2", coupling_blocks=8)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="CSFlow">
+    CSFlow (Fully Convolutional Cross-Scale-Flows) uses a multi-scale normalizing flow that shares information across spatial scales through cross-connections. This allows the model to capture both fine-grained texture anomalies and larger structural deviations.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [Fully Convolutional Cross-Scale-Flows for Image-based Defect Detection](https://arxiv.org/abs/2110.02855)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `cross_conv_hidden_channels` | `1024` | Hidden channels for cross-scale convolutions |
+    | `n_coupling_blocks` | `4` | Number of coupling blocks |
+    | `clamp` | `3` | Clamping value for affine coupling |
+    | `num_channels` | `3` | Input image channels |
+
+    <Note>CSFlow requires `input_size` to be set via the pre-processor (default: 256×256).</Note>
+
+    ```python
+    from anomalib.models import Csflow
+    from anomalib.engine import Engine
+
+    model = Csflow(n_coupling_blocks=4, cross_conv_hidden_channels=1024)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="DFKDE">
+    DFKDE (Deep Feature Kernel Density Estimation) extracts deep features from a pretrained CNN backbone, reduces dimensionality with PCA, then fits a kernel density estimator over the training features. Anomaly scores are the negative log-likelihood under this distribution.
+
+    **Learning type:** ONE_CLASS
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"resnet18"` | Backbone CNN network |
+    | `layers` | `("layer4",)` | Layers to extract features from |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+    | `n_pca_components` | `16` | Number of PCA components |
+    | `feature_scaling_method` | `"scale"` | Feature normalization method |
+    | `max_training_points` | `40000` | Maximum number of training embeddings |
+
+    ```python
+    from anomalib.models import Dfkde
+    from anomalib.engine import Engine
+
+    model = Dfkde(backbone="resnet18", n_pca_components=16)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="DFM">
+    DFM (Deep Feature Modeling) extracts features from a single layer of a pretrained CNN, applies average pooling, then fits a PCA model to the training features. Anomaly scores can be based on feature reconstruction error or Mahalanobis distance.
+
+    **Learning type:** ONE_CLASS
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"resnet50"` | Backbone CNN network |
+    | `layer` | `"layer3"` | Layer to extract features from |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+    | `pooling_kernel_size` | `4` | Average pooling kernel size |
+    | `pca_level` | `0.97` | Variance ratio to preserve in PCA |
+    | `score_type` | `"fre"` | Scoring method: `"fre"` (reconstruction) or `"nll"` (likelihood) |
+
+    ```python
+    from anomalib.models import Dfm
+    from anomalib.engine import Engine
+
+    model = Dfm(backbone="resnet50", layer="layer3", pca_level=0.97)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="Dinomaly">
+    Dinomaly uses a pretrained DINOv2 ViT encoder with a lightweight transformer decoder trained to reconstruct encoder features. Anomaly scores are based on the reconstruction error between encoder and decoder outputs at multiple layers. Only the bottleneck and decoder parameters are trained.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [Dinomaly: The Less Is More Philosophy in Multi-Class Unsupervised Anomaly Detection](https://arxiv.org/abs/2405.14325)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `encoder_name` | `"dinov2reg_vit_base_14"` | Pretrained DINOv2 encoder |
+    | `bottleneck_dropout` | `0.2` | Dropout rate in the bottleneck |
+    | `decoder_depth` | `8` | Number of transformer decoder layers |
+    | `target_layers` | `None` | Encoder layers to reconstruct (default: all) |
+    | `remove_class_token` | `False` | Whether to drop the class token from features |
+
+    ```python
+    from anomalib.models import Dinomaly
+    from anomalib.engine import Engine
+
+    model = Dinomaly(encoder_name="dinov2reg_vit_base_14", decoder_depth=8)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="DRAEM">
+    DRAEM (Dual Reconstruction by Adversarial Masking) trains two networks: a reconstructive sub-network that learns to restore images, and a discriminative sub-network that detects anomalies by comparing inputs to their reconstructions. Synthetic anomalies are generated during training using Perlin noise blended with textures from the DTD dataset.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [DRÆM – A discriminatively trained reconstruction embedding for surface anomaly detection](https://arxiv.org/abs/2108.07610)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `dtd_dir` | `"./datasets/dtd"` | Path to DTD texture dataset (auto-downloaded) |
+    | `enable_sspcab` | `False` | Enable SSPCAB self-supervised pretraining |
+    | `sspcab_lambda` | `0.1` | Weight for the SSPCAB loss |
+    | `beta` | `(0.1, 1.0)` | Blend factor range for synthetic anomaly generation |
+
+    ```python
+    from anomalib.models import Draem
+    from anomalib.engine import Engine
+
+    model = Draem(dtd_dir="./datasets/dtd", beta=(0.1, 1.0))
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="DSR">
+    DSR (Dual Subspace Re-projection) learns a discrete quantized representation of normal images. Anomalies are detected by measuring the difference between an image and its re-projection through the learned codebook. The model uses both quantized anomaly generation and Perlin noise anomalies during training.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [DSR – A Dual Subspace Re-Projection Network for Surface Anomaly Detection](https://arxiv.org/abs/2208.01521)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `latent_anomaly_strength` | `0.2` | Strength of latent space anomaly perturbations |
+    | `upsampling_train_ratio` | `0.7` | Fraction of training using upsampling stage |
+
+    ```python
+    from anomalib.models import Dsr
+    from anomalib.engine import Engine
+
+    model = Dsr(latent_anomaly_strength=0.2)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="EfficientAD">
+    EfficientAD uses a student-teacher architecture with a pretrained EfficientNet teacher and a lightweight student network. The student is trained on both the target dataset and ImageNette (auto-downloaded) to distinguish in-distribution from out-of-distribution features. Achieves millisecond-level inference latency.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [EfficientAD: Accurate Visual Anomaly Detection at Millisecond-Level Latencies](https://arxiv.org/abs/2303.14535)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `imagenet_dir` | `"./datasets/imagenette"` | Path to ImageNette (auto-downloaded) |
+    | `teacher_out_channels` | `384` | Output channels of the teacher network |
+    | `model_size` | `"s"` | Model size: `"s"` (small) or `"m"` (medium) |
+    | `lr` | `0.0001` | Learning rate |
+    | `weight_decay` | `0.00001` | Optimizer weight decay |
+    | `padding` | `False` | Use padding in convolutional layers |
+    | `pad_maps` | `True` | Pad anomaly maps to match padded output size |
+
+    <Note>EfficientAD requires `train_batch_size=1` and input normalization must not be included in the pre-processor transform — it is applied internally.</Note>
+
+    ```python
+    from anomalib.models import EfficientAd
+    from anomalib.engine import Engine
+
+    model = EfficientAd(model_size="s", lr=1e-4)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="FastFlow">
+    FastFlow uses a 2D normalizing flow built on top of a pretrained backbone (ResNet or Vision Transformer). Each spatial position's feature vector is modeled by the normalizing flow independently, allowing the model to produce dense anomaly maps.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [FastFlow: Unsupervised Anomaly Detection and Localization via 2D Normalizing Flows](https://arxiv.org/abs/2111.07677)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"resnet18"` | Backbone network (`"resnet18"`, `"wide_resnet50_2"`, `"cait_m48_448"`, `"deit_base_distilled_patch16_384"`) |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+    | `flow_steps` | `8` | Number of normalizing flow steps |
+    | `conv3x3_only` | `False` | Use only 3×3 convolutions in the flow |
+    | `hidden_ratio` | `1.0` | Channel expansion ratio in flow layers |
+
+    ```python
+    from anomalib.models import Fastflow
+    from anomalib.engine import Engine
+
+    model = Fastflow(backbone="resnet18", flow_steps=8)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="FRE">
+    FRE (Feature Reconstruction Error) trains a tied autoencoder on top of features extracted from a pretrained CNN. During inference, the reconstruction error between the original features and their reconstruction is used as the anomaly score.
+
+    **Learning type:** ONE_CLASS
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"resnet50"` | Backbone CNN network |
+    | `layer` | `"layer3"` | Layer to extract features from |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+    | `pooling_kernel_size` | `2` | Pooling kernel size for feature maps |
+    | `input_dim` | `65536` | Dimension of flattened input features |
+    | `latent_dim` | `220` | Autoencoder bottleneck dimension |
+
+    ```python
+    from anomalib.models import Fre
+    from anomalib.engine import Engine
+
+    model = Fre(backbone="resnet50", layer="layer3", latent_dim=220)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="GANomaly">
+    GANomaly trains an encoder-decoder-encoder GAN where the generator learns to reconstruct normal images. Anomalies are detected by comparing the latent representations produced by the encoder of the original and reconstructed images.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [GANomaly: Semi-Supervised Anomaly Detection via Adversarial Training](https://arxiv.org/abs/1805.06725)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `batch_size` | `32` | Training batch size |
+    | `n_features` | `64` | Number of features in the generator |
+    | `latent_vec_size` | `100` | Latent vector dimensionality |
+    | `extra_layers` | `0` | Extra intermediate conv layers |
+    | `add_final_conv_layer` | `True` | Add final conv layer to the encoder |
+    | `wadv` | `1` | Adversarial loss weight |
+    | `wcon` | `50` | Contextual (reconstruction) loss weight |
+    | `wenc` | `1` | Encoder loss weight |
+    | `lr` | `0.0002` | Learning rate |
+    | `beta1` | `0.5` | Adam beta1 |
+    | `beta2` | `0.999` | Adam beta2 |
+
+    ```python
+    from anomalib.models import Ganomaly
+    from anomalib.engine import Engine
+
+    model = Ganomaly(n_features=64, latent_vec_size=100, wcon=50)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="PaDiM">
+    PaDiM (Patch Distribution Modeling) models the distribution of patch embeddings at each spatial location using multivariate Gaussian distributions. Features are extracted from multiple layers of a pretrained CNN to capture both semantic and texture information. During inference, anomaly scores are Mahalanobis distances from each patch to its reference distribution.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [PaDiM: a Patch Distribution Modeling Framework for Anomaly Detection and Localization](https://arxiv.org/abs/2011.08785)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"resnet18"` | Backbone CNN network |
+    | `layers` | `["layer1", "layer2", "layer3"]` | Layers to extract features from |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+    | `n_features` | `None` | Features to retain after dimension reduction (paper defaults: resnet18=100, wide_resnet50_2=550) |
+
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Padim
+    from anomalib.engine import Engine
+
+    datamodule = MVTecAD()
+    model = Padim(backbone="resnet18", layers=["layer1", "layer2", "layer3"])
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    predictions = engine.predict(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="PatchCore">
+    PatchCore builds a memory bank of patch features extracted from a pretrained CNN backbone. It uses greedy coreset subsampling to keep the bank compact. At inference, anomaly scores are based on the distance from each test patch to its nearest neighbor in the memory bank.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [Towards Total Recall in Industrial Anomaly Detection](https://arxiv.org/abs/2106.08265)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"wide_resnet50_2"` | Backbone CNN network |
+    | `layers` | `("layer2", "layer3")` | Layers to extract features from |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+    | `coreset_sampling_ratio` | `0.1` | Fraction of embeddings to keep in the memory bank |
+    | `num_neighbors` | `9` | Nearest neighbors for anomaly scoring |
+    | `precision` | `"float32"` | Computation precision (`"float32"` or `"float16"`) |
+
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    datamodule = MVTecAD()
+    model = Patchcore(
+        backbone="wide_resnet50_2",
+        layers=["layer2", "layer3"],
+        coreset_sampling_ratio=0.1,
+        num_neighbors=9,
+    )
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    predictions = engine.predict(model=model, datamodule=datamodule)
+    ```
+
+    To reproduce the paper's preprocessing (256px resize + 224px center crop):
+
+    ```python
+    pre_processor = Patchcore.configure_pre_processor(
+        image_size=(256, 256),
+        center_crop_size=(224, 224),
+    )
+    model = Patchcore(pre_processor=pre_processor)
+    ```
+  </Accordion>
+
+  <Accordion title="Reverse Distillation">
+    Reverse Distillation trains a decoder (student) to reconstruct features from a pretrained encoder (teacher) in a reverse direction — from a compact one-class bottleneck back to the original feature maps. Anomalies produce higher reconstruction error because the bottleneck cannot faithfully encode out-of-distribution information.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [Anomaly Detection via Reverse Distillation from One-Class Embedding](https://arxiv.org/abs/2201.10703)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"wide_resnet50_2"` | Teacher backbone network |
+    | `layers` | `("layer1", "layer2", "layer3")` | Layers to use for distillation |
+    | `anomaly_map_mode` | `"add"` | How to combine anomaly maps across layers (`"add"` or `"multiply"`) |
+    | `pre_trained` | `True` | Use pretrained backbone weights |
+
+    ```python
+    from anomalib.models import ReverseDistillation
+    from anomalib.engine import Engine
+
+    model = ReverseDistillation(backbone="wide_resnet50_2", layers=["layer1", "layer2", "layer3"])
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="STFPM">
+    STFPM (Student-Teacher Feature Pyramid Matching) trains a student network to match the multi-scale feature maps of a pretrained teacher network. Since the student only learns to reproduce normal patterns, test images with anomalies produce large discrepancies between teacher and student features.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [Student-Teacher Feature Pyramid Matching for Unsupervised Anomaly Detection](https://arxiv.org/abs/2103.04257)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"resnet18"` | Shared backbone for teacher and student |
+    | `layers` | `("layer1", "layer2", "layer3")` | Feature pyramid layers to match |
+
+    ```python
+    from anomalib.models import Stfpm
+    from anomalib.engine import Engine
+
+    model = Stfpm(backbone="resnet18", layers=["layer1", "layer2", "layer3"])
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="SuperSimpleNet">
+    SuperSimpleNet adapts pretrained feature extractor outputs using lightweight adapter modules, then generates synthetic anomalies with Perlin noise during training. A discriminative head is trained to distinguish normal from anomalous features. Supports both supervised and unsupervised training modes.
+
+    **Learning type:** ONE_CLASS (unsupervised) or supervised  
+    **Paper:** [SuperSimpleNet: Unifying Unsupervised and Supervised Learning for Fast and Reliable Surface Defect Detection](https://arxiv.org/abs/2408.03143)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"wide_resnet50_2.tv_in1k"` | Feature extractor backbone |
+    | `layers` | `["layer2", "layer3"]` | Layers to extract features from |
+    | `perlin_threshold` | `0.2` | Threshold for Perlin noise anomaly generation |
+    | `supervised` | `False` | Enable supervised training mode |
+    | `adapt_cls_features` | `False` | Apply adapter to classification features |
+
+    ```python
+    from anomalib.models import Supersimplenet
+    from anomalib.engine import Engine
+
+    model = Supersimplenet(backbone="wide_resnet50_2.tv_in1k", supervised=False)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="UFlow">
+    UFlow (U-shaped Normalizing Flow) uses a U-Net-inspired multi-scale normalizing flow that aggregates features at different resolutions and provides an unsupervised threshold for decision making.
+
+    **Learning type:** ONE_CLASS  
+    **Paper:** [U-Flow: A U-shaped Normalizing Flow for Anomaly Detection with Unsupervised Threshold](https://arxiv.org/abs/2211.12353)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `backbone` | `"mcait"` | Backbone feature extractor (`"mcait"`, `"resnet18"`, `"wide_resnet50_2"`) |
+    | `flow_steps` | `4` | Number of normalizing flow steps per scale |
+    | `affine_clamp` | `2.0` | Clamping value for affine coupling |
+    | `affine_subnet_channels_ratio` | `1.0` | Channel ratio for affine subnet |
+    | `permute_soft` | `False` | Use soft permutations |
+
+    ```python
+    from anomalib.models import Uflow
+    from anomalib.engine import Engine
+
+    model = Uflow(backbone="mcait", flow_steps=4)
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="UniNet">
+    UniNet uses a student-teacher architecture with contrastive learning. A teacher backbone generates reference features, and a student backbone is trained with a contrastive loss to produce similar features for normal patches but different features for anomalous ones.
+
+    **Learning type:** ONE_CLASS
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `student_backbone` | `"wide_resnet50_2"` | Student network backbone |
+    | `teacher_backbone` | `"wide_resnet50_2"` | Teacher network backbone |
+    | `temperature` | `0.1` | Temperature for contrastive loss |
+
+    ```python
+    from anomalib.models import UniNet
+    from anomalib.engine import Engine
+
+    model = UniNet(student_backbone="wide_resnet50_2", teacher_backbone="wide_resnet50_2")
+    engine = Engine()
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="VLM-AD">
+    VLM-AD (Vision Language Model Anomaly Detection) uses large vision-language models to detect anomalies through natural language prompting. It supports multiple backends: Ollama (local LLaMA), OpenAI GPT-4o Mini, and HuggingFace models. The model can operate in zero-shot or few-shot mode.
+
+    **Learning type:** ZERO_SHOT (`k_shot=0`) or FEW_SHOT (`k_shot > 0`)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `model` | `"llama_ollama"` | VLM backend: `"llama_ollama"`, `"gpt_4o_mini"`, or HuggingFace model name |
+    | `api_key` | `None` | API key for cloud models (e.g. OpenAI) |
+    | `k_shot` | `0` | Number of reference images (0 = zero-shot) |
+    | `hf_model_revision` | `None` | Specific commit or tag for HuggingFace models |
+
+    ```python
+    from anomalib.models import VlmAd
+    from anomalib.engine import Engine
+
+    # Zero-shot with local LLaMA via Ollama
+    model = VlmAd(model="llama_ollama", k_shot=0)
+
+    # Few-shot with GPT-4o Mini
+    model = VlmAd(model="gpt_4o_mini", api_key="sk-...", k_shot=5)
+
+    engine = Engine()
+    engine.test(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+
+  <Accordion title="WinCLIP">
+    WinCLIP uses CLIP's vision-language embeddings with a sliding window approach to detect and localize anomalies. The model compares image patches against text prompts describing normal appearance, using a compositional prompt ensemble. In few-shot mode, reference images are encoded and used alongside text prompts.
+
+    **Learning type:** ZERO_SHOT (`k_shot=0`) or FEW_SHOT (`k_shot > 0`)  
+    **Paper:** [WinCLIP: Zero-/Few-Shot Anomaly Classification and Segmentation](https://arxiv.org/abs/2303.14814)
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `class_name` | `None` | Object class name for prompt ensemble (inferred from datamodule if not set) |
+    | `k_shot` | `0` | Number of reference images (0 = zero-shot) |
+    | `scales` | `(2, 3)` | Sliding window scales for multi-scale detection |
+    | `few_shot_source` | `None` | Path to folder with reference images (if not sampling from training data) |
+
+    <Note>WinCLIP input size is fixed at 240×240 and uses CLIP-specific normalization. These cannot be changed.</Note>
+
+    ```python
+    from anomalib.models import WinClip
+    from anomalib.engine import Engine
+
+    # Zero-shot: no training needed
+    model = WinClip(class_name="hazelnut")
+    engine = Engine()
+    engine.test(model=model, datamodule=datamodule)
+
+    # Few-shot: use 5 reference images from training data
+    model = WinClip(k_shot=5, class_name="hazelnut")
+    engine.fit(model=model, datamodule=datamodule)
+    engine.test(model=model, datamodule=datamodule)
+    ```
+  </Accordion>
+</AccordionGroup>

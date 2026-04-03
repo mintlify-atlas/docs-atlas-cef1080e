@@ -1,0 +1,699 @@
+---
+title: "Data API"
+description: "Data modules, datasets, data classes, and factory utilities for anomaly detection pipelines."
+keywords: ["data", "datamodule", "dataset", "MVTecAD", "Folder", "BTech", "VisA", "AnomalibDataModule"]
+---
+
+Anomalib's data layer provides a hierarchy of classes for loading, splitting, and serving data to models. All data modules extend `AnomalibDataModule`, which itself extends PyTorch Lightning's `LightningDataModule`.
+
+```python
+from anomalib.data import MVTecAD
+
+datamodule = MVTecAD(
+    root="./datasets/MVTecAD",
+    category="bottle",
+)
+datamodule.setup()
+
+train_loader = datamodule.train_dataloader()
+```
+
+## `DataFormat`
+
+Composite enum merging all supported dataset format identifiers from image, depth, and video domains.
+
+```python
+from anomalib.data import DataFormat, ImageDataFormat, DepthDataFormat, VideoDataFormat
+```
+
+<AccordionGroup>
+  <Accordion title="ImageDataFormat values">
+    `BMAD`, `BTECH`, `DATUMARO`, `FOLDER`, `KAPUTT`, `KOLEKTOR`, `MPDD`, `MVTEC_AD`, `MVTEC_AD_2`, `MVTEC_LOCO`, `REALIAD`, `TABULAR`, `VAD`, `VISA`
+  </Accordion>
+  <Accordion title="DepthDataFormat values">
+    `FOLDER_3D`, `MVTEC_3D`, `ADAM_3D`
+  </Accordion>
+  <Accordion title="VideoDataFormat values">
+    `AVENUE`, `SHANGHAITECH`, `UCSDPED`
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## `AnomalibDataModule`
+
+Base class for all Anomalib data modules. Handles dataset splitting, validation set creation, augmentation coordination with model pre-processors, and dataloader configuration.
+
+```python
+from anomalib.data import AnomalibDataModule
+```
+
+### Constructor
+
+<ParamField path="train_batch_size" type="number" required>
+  Batch size for the training dataloader.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="number" required>
+  Batch size for the validation and test dataloaders.
+</ParamField>
+
+<ParamField path="num_workers" type="number" required>
+  Number of worker processes for all dataloaders.
+</ParamField>
+
+<ParamField path="train_augmentations" type="Transform | None" default="None">
+  Augmentations applied to training images only.
+</ParamField>
+
+<ParamField path="val_augmentations" type="Transform | None" default="None">
+  Augmentations applied to validation images only.
+</ParamField>
+
+<ParamField path="test_augmentations" type="Transform | None" default="None">
+  Augmentations applied to test images only.
+</ParamField>
+
+<ParamField path="augmentations" type="Transform | None" default="None">
+  General augmentations applied to all splits when stage-specific augmentations are not set.
+</ParamField>
+
+<ParamField path="val_split_mode" type="ValSplitMode | str | None" default="None">
+  How to create the validation set. Options: `"none"`, `"from_train"`, `"from_test"`, `"same_as_test"`, `"synthetic"`.
+</ParamField>
+
+<ParamField path="val_split_ratio" type="number | None" default="None">
+  Fraction of data to use for validation when sampling from train or test set.
+</ParamField>
+
+<ParamField path="test_split_mode" type="TestSplitMode | str | None" default="None">
+  How to create the test set. Options: `"none"`, `"from_dir"`, `"synthetic"`.
+</ParamField>
+
+<ParamField path="test_split_ratio" type="number | None" default="None">
+  Fraction of data to use for the test set.
+</ParamField>
+
+<ParamField path="seed" type="number | None" default="None">
+  Random seed for reproducible splits.
+</ParamField>
+
+### Key methods and properties
+
+<AccordionGroup>
+  <Accordion title="setup(stage)">
+    Builds `train_data`, `val_data`, and `test_data` by calling `_setup`, then applying test and validation splits. Called automatically by the engine before dataloaders are requested.
+
+    ```python
+    datamodule = MVTecAD()
+    datamodule.setup()
+    print(len(datamodule.train_data))
+    ```
+  </Accordion>
+  <Accordion title="train_dataloader / val_dataloader / test_dataloader">
+    Standard PyTorch Lightning dataloader methods returning `DataLoader` instances configured with `train_batch_size` or `eval_batch_size` and `num_workers`.
+  </Accordion>
+  <Accordion title="task">
+    Property returning the `TaskType` (`CLASSIFICATION` or `SEGMENTATION`) inferred from the underlying dataset.
+  </Accordion>
+  <Accordion title="category">
+    Property returning the dataset category name (e.g. `"bottle"` for MVTec AD).
+  </Accordion>
+  <Accordion title="from_config(config_path, **kwargs)">
+    Classmethod. Create a datamodule from a YAML config file.
+
+    ```python
+    datamodule = AnomalibDataModule.from_config(
+        "examples/configs/data/mvtec.yaml",
+    )
+
+    # Override config values
+    datamodule = AnomalibDataModule.from_config(
+        "examples/configs/data/mvtec.yaml",
+        data_train_batch_size=8,
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## `AnomalibDataset`
+
+Base class for all Anomalib datasets. Extends `torch.utils.data.Dataset` and provides the `collate_fn` used by the datamodule's dataloaders.
+
+```python
+from anomalib.data import AnomalibDataset
+```
+
+All concrete dataset classes (e.g. `MVTecADDataset`, `FolderDataset`) inherit from this class.
+
+---
+
+## `get_datamodule`
+
+Instantiate a data module from an OmegaConf or plain dictionary config.
+
+```python
+from anomalib.data import get_datamodule
+```
+
+<ParamField path="config" type="DictConfig | ListConfig | dict" required>
+  Configuration with a `data.class_path` (or top-level `class_path`) and optional `data.init_args`. The `class_path` is resolved against `anomalib.data`.
+</ParamField>
+
+**Returns:** `AnomalibDataModule`
+
+**Raises:** `UnknownDatamoduleError` — if the specified class cannot be found.
+
+```python
+from omegaconf import DictConfig
+from anomalib.data import get_datamodule
+
+config = DictConfig({
+    "data": {
+        "class_path": "MVTecAD",
+        "init_args": {
+            "root": "./datasets/MVTecAD",
+            "category": "bottle",
+        },
+    }
+})
+datamodule = get_datamodule(config)
+```
+
+---
+
+## Data classes
+
+Data classes are typed container objects passed between datasets, models, and post-processors.
+
+### Image data
+
+<ResponseField name="ImageItem" type="dataclass">
+  A single labeled image sample.
+
+  <Expandable title="fields">
+    <ResponseField name="image" type="Tensor">
+      Image tensor, shape `(C, H, W)`.
+    </ResponseField>
+    <ResponseField name="gt_label" type="Tensor | None">
+      Ground-truth anomaly label (0 = normal, 1 = anomalous).
+    </ResponseField>
+    <ResponseField name="gt_mask" type="Tensor | None">
+      Ground-truth pixel-wise binary mask.
+    </ResponseField>
+    <ResponseField name="image_path" type="str | None">
+      Path to the source image file.
+    </ResponseField>
+    <ResponseField name="mask_path" type="str | None">
+      Path to the ground-truth mask file.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="ImageBatch" type="dataclass">
+  A batch of labeled image samples. All fields are batched tensors corresponding to `ImageItem`.
+</ResponseField>
+
+<ResponseField name="NumpyImageItem" type="dataclass">
+  Single image sample with numpy arrays instead of tensors. Used for post-processed outputs.
+</ResponseField>
+
+<ResponseField name="NumpyImageBatch" type="dataclass">
+  Batch of post-processed image samples with numpy arrays.
+</ResponseField>
+
+<ResponseField name="InferenceBatch" type="dataclass">
+  Output from the model forward pass, containing `pred_score`, `pred_label`, `anomaly_map`, and `pred_mask`.
+</ResponseField>
+
+### Video data
+
+<ResponseField name="VideoItem" type="dataclass">
+  A single labeled video clip sample.
+
+  <Expandable title="fields">
+    <ResponseField name="image" type="Tensor">
+      Video clip tensor, shape `(T, C, H, W)`.
+    </ResponseField>
+    <ResponseField name="gt_label" type="Tensor | None">
+      Ground-truth label for the clip.
+    </ResponseField>
+    <ResponseField name="gt_mask" type="Tensor | None">
+      Per-frame binary mask.
+    </ResponseField>
+    <ResponseField name="video_path" type="str | None">
+      Path to the source video file.
+    </ResponseField>
+    <ResponseField name="frames" type="Tensor | None">
+      Frame indices in the source video.
+    </ResponseField>
+    <ResponseField name="last_frame" type="int | None">
+      Index of the last frame in the clip.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="VideoBatch" type="dataclass">
+  A batch of labeled video clip samples.
+</ResponseField>
+
+<ResponseField name="NumpyVideoBatch" type="dataclass">
+  Batch of post-processed video samples with numpy arrays.
+</ResponseField>
+
+### Depth data
+
+<ResponseField name="DepthItem" type="dataclass">
+  A single sample with both RGB and depth images.
+</ResponseField>
+
+<ResponseField name="DepthBatch" type="dataclass">
+  A batch of RGB + depth samples.
+</ResponseField>
+
+---
+
+## Datamodule classes
+
+### `MVTecAD`
+
+The MVTec Anomaly Detection benchmark dataset. Downloaded automatically on first use.
+
+```python
+from anomalib.data import MVTecAD
+
+datamodule = MVTecAD(
+    root="./datasets/MVTecAD",
+    category="bottle",
+)
+```
+
+<ParamField path="root" type="str | Path" default='"./datasets/MVTecAD"'>
+  Root directory of the dataset. Downloaded here if not present.
+</ParamField>
+
+<ParamField path="category" type="string" default='"bottle"'>
+  Product category to load. Options include `"bottle"`, `"cable"`, `"capsule"`, `"carpet"`, `"grid"`, `"hazelnut"`, `"leather"`, `"metal_nut"`, `"pill"`, `"screw"`, `"tile"`, `"toothbrush"`, `"transistor"`, `"wood"`, `"zipper"`.
+</ParamField>
+
+<ParamField path="train_batch_size" type="number" default="32">
+  Training batch size.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="number" default="32">
+  Validation and test batch size.
+</ParamField>
+
+<ParamField path="num_workers" type="number" default="8">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="train_augmentations" type="Transform | None" default="None">
+  Augmentations for training images.
+</ParamField>
+
+<ParamField path="val_augmentations" type="Transform | None" default="None">
+  Augmentations for validation images.
+</ParamField>
+
+<ParamField path="test_augmentations" type="Transform | None" default="None">
+  Augmentations for test images.
+</ParamField>
+
+<ParamField path="augmentations" type="Transform | None" default="None">
+  General augmentations applied to all splits when stage-specific ones are not set.
+</ParamField>
+
+<ParamField path="val_split_mode" type="ValSplitMode" default="ValSplitMode.SAME_AS_TEST">
+  Strategy for creating the validation split.
+</ParamField>
+
+<ParamField path="val_split_ratio" type="number" default="0.5">
+  Fraction of data for validation when sampling.
+</ParamField>
+
+<ParamField path="test_split_mode" type="TestSplitMode" default="TestSplitMode.FROM_DIR">
+  Strategy for creating the test split.
+</ParamField>
+
+<ParamField path="test_split_ratio" type="number" default="0.2">
+  Fraction of data for the test split when sampling.
+</ParamField>
+
+<ParamField path="seed" type="number | None" default="None">
+  Random seed for reproducible splits.
+</ParamField>
+
+---
+
+### `Folder`
+
+Load a custom dataset organized in local directories.
+
+```python
+from anomalib.data import Folder
+
+datamodule = Folder(
+    name="my_dataset",
+    root="./datasets/custom",
+    normal_dir="good",
+    abnormal_dir="defect",
+    mask_dir="masks",
+)
+```
+
+<ParamField path="name" type="string" required>
+  Name of the dataset. Used for logging and saving results.
+</ParamField>
+
+<ParamField path="normal_dir" type="str | Path | Sequence" required>
+  Directory containing normal (non-anomalous) training images.
+</ParamField>
+
+<ParamField path="root" type="str | Path | None" default="None">
+  Root directory. `normal_dir` and `abnormal_dir` are relative to this.
+</ParamField>
+
+<ParamField path="abnormal_dir" type="str | Path | Sequence | None" default="None">
+  Directory containing anomalous images.
+</ParamField>
+
+<ParamField path="normal_test_dir" type="str | Path | Sequence | None" default="None">
+  Directory containing normal images for testing. Sampled from `normal_dir` if not provided.
+</ParamField>
+
+<ParamField path="mask_dir" type="str | Path | Sequence | None" default="None">
+  Directory containing ground-truth mask annotations.
+</ParamField>
+
+<ParamField path="normal_split_ratio" type="number" default="0.2">
+  Fraction of normal images to hold out for the test set when no `normal_test_dir` is provided.
+</ParamField>
+
+<ParamField path="extensions" type="tuple[str, ...] | None" default="None">
+  Image file extensions to include (e.g. `(".png", ".jpg")`). All common image formats are included by default.
+</ParamField>
+
+<ParamField path="train_batch_size" type="number" default="32">
+  Training batch size.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="number" default="32">
+  Validation and test batch size.
+</ParamField>
+
+<ParamField path="num_workers" type="number" default="8">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="val_split_mode" type="ValSplitMode" default="ValSplitMode.FROM_TEST">
+  Strategy for creating the validation split.
+</ParamField>
+
+<ParamField path="val_split_ratio" type="number" default="0.5">
+  Fraction of test data to use for validation.
+</ParamField>
+
+<ParamField path="test_split_mode" type="TestSplitMode" default="TestSplitMode.FROM_DIR">
+  Strategy for creating the test split.
+</ParamField>
+
+<ParamField path="test_split_ratio" type="number" default="0.2">
+  Fraction of training data for the test split.
+</ParamField>
+
+<ParamField path="seed" type="number | None" default="None">
+  Random seed for reproducible splits.
+</ParamField>
+
+**Expected directory structure:**
+
+```
+root/
+├── good/           ← normal_dir
+│   ├── 001.png
+│   └── 002.png
+├── defect/         ← abnormal_dir
+│   ├── 003.png
+│   └── 004.png
+└── masks/          ← mask_dir (optional)
+    ├── 003.png
+    └── 004.png
+```
+
+---
+
+### `BTech`
+
+BTech industrial anomaly detection dataset. Downloaded automatically on first use.
+
+```python
+from anomalib.data import BTech
+
+datamodule = BTech(
+    root="./datasets/BTech",
+    category="01",
+)
+```
+
+<ParamField path="root" type="str | Path" default='"./datasets/BTech"'>
+  Root directory of the dataset.
+</ParamField>
+
+<ParamField path="category" type="string" default='"01"'>
+  BTech category. One of `"01"`, `"02"`, or `"03"`.
+</ParamField>
+
+<ParamField path="train_batch_size" type="number" default="32">
+  Training batch size.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="number" default="32">
+  Validation and test batch size.
+</ParamField>
+
+<ParamField path="num_workers" type="number" default="8">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="val_split_mode" type="ValSplitMode" default="ValSplitMode.SAME_AS_TEST">
+  Strategy for creating the validation split.
+</ParamField>
+
+<ParamField path="seed" type="number | None" default="None">
+  Random seed for reproducible splits.
+</ParamField>
+
+---
+
+### `Visa`
+
+Visual Anomaly (VisA) dataset. Downloaded automatically on first use.
+
+```python
+from anomalib.data import Visa
+
+datamodule = Visa(
+    root="./datasets/visa",
+    category="capsules",
+)
+```
+
+<ParamField path="root" type="str | Path" default='"./datasets/visa"'>
+  Root directory of the dataset.
+</ParamField>
+
+<ParamField path="category" type="string" default='"capsules"'>
+  VisA category, e.g. `"candle"`, `"capsules"`, `"cashew"`, `"chewinggum"`, `"fryum"`, `"macaroni1"`, `"macaroni2"`, `"pcb1"`, `"pcb2"`, `"pcb3"`, `"pcb4"`, `"pipe_fryum"`.
+</ParamField>
+
+<ParamField path="train_batch_size" type="number" default="32">
+  Training batch size.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="number" default="32">
+  Validation and test batch size.
+</ParamField>
+
+<ParamField path="num_workers" type="number" default="8">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="val_split_mode" type="ValSplitMode" default="ValSplitMode.SAME_AS_TEST">
+  Strategy for creating the validation split.
+</ParamField>
+
+<ParamField path="val_split_ratio" type="number" default="0.5">
+  Fraction of data for validation when sampling.
+</ParamField>
+
+<ParamField path="test_split_mode" type="TestSplitMode" default="TestSplitMode.FROM_DIR">
+  Strategy for creating the test split.
+</ParamField>
+
+<ParamField path="seed" type="number | None" default="None">
+  Random seed for reproducible splits.
+</ParamField>
+
+---
+
+### `MVTec3D`
+
+MVTec 3D-AD dataset with paired RGB + depth images.
+
+```python
+from anomalib.data import MVTec3D
+
+datamodule = MVTec3D(
+    root="./datasets/MVTec3D",
+    category="bagel",
+)
+```
+
+<ParamField path="root" type="str | Path" default='"./datasets/MVTec3D"'>
+  Root directory of the dataset.
+</ParamField>
+
+<ParamField path="category" type="string" default='"bagel"'>
+  MVTec 3D-AD category.
+</ParamField>
+
+<ParamField path="train_batch_size" type="number" default="32">
+  Training batch size.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="number" default="32">
+  Validation and test batch size.
+</ParamField>
+
+<ParamField path="num_workers" type="number" default="8">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="seed" type="number | None" default="None">
+  Random seed for reproducible splits.
+</ParamField>
+
+---
+
+### `Avenue`
+
+CUHK Avenue video anomaly detection dataset. Downloaded automatically on first use.
+
+```python
+from anomalib.data import Avenue
+
+datamodule = Avenue(
+    root="./datasets/avenue",
+    clip_length_in_frames=2,
+    frames_between_clips=1,
+)
+```
+
+<ParamField path="root" type="str | Path" default='"./datasets/avenue"'>
+  Root directory of the dataset.
+</ParamField>
+
+<ParamField path="gt_dir" type="str | Path" default='"./datasets/avenue/ground_truth_demo"'>
+  Path to ground truth annotation files.
+</ParamField>
+
+<ParamField path="clip_length_in_frames" type="number" default="2">
+  Number of consecutive frames in each video clip sample.
+</ParamField>
+
+<ParamField path="frames_between_clips" type="number" default="1">
+  Number of frames to skip between the start of consecutive clips.
+</ParamField>
+
+<ParamField path="target_frame" type="VideoTargetFrame | str" default="VideoTargetFrame.LAST">
+  Which frame within a clip to use for ground-truth label assignment.
+</ParamField>
+
+<ParamField path="train_batch_size" type="number" default="32">
+  Training batch size.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="number" default="32">
+  Validation and test batch size.
+</ParamField>
+
+<ParamField path="num_workers" type="number" default="8">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="val_split_mode" type="ValSplitMode" default="ValSplitMode.SAME_AS_TEST">
+  Strategy for creating the validation split.
+</ParamField>
+
+<ParamField path="seed" type="number | None" default="None">
+  Random seed for reproducible splits.
+</ParamField>
+
+---
+
+## Complete example
+
+<CodeGroup>
+
+```python MVTecAD training
+from anomalib.engine import Engine
+from anomalib.models import Patchcore
+from anomalib.data import MVTecAD
+
+datamodule = MVTecAD(
+    root="./datasets/MVTecAD",
+    category="bottle",
+    train_batch_size=32,
+    eval_batch_size=32,
+    num_workers=4,
+)
+
+model = Patchcore()
+engine = Engine()
+results = engine.train(model, datamodule=datamodule)
+```
+
+```python custom Folder dataset
+from anomalib.engine import Engine
+from anomalib.models import Padim
+from anomalib.data import Folder
+
+datamodule = Folder(
+    name="pcb_defects",
+    root="./datasets/pcb",
+    normal_dir="good",
+    abnormal_dir="defect",
+    mask_dir="masks",
+    train_batch_size=16,
+    num_workers=4,
+)
+
+model = Padim()
+engine = Engine()
+engine.fit(model, datamodule=datamodule)
+```
+
+```python video anomaly detection
+from anomalib.engine import Engine
+from anomalib.models import AiVad
+from anomalib.data import Avenue
+
+datamodule = Avenue(
+    root="./datasets/avenue",
+    clip_length_in_frames=2,
+    frames_between_clips=1,
+)
+
+model = AiVad()
+engine = Engine()
+results = engine.train(model, datamodule=datamodule)
+```
+
+</CodeGroup>
+
+<Tip>
+  For datasets with automatic download support (MVTecAD, BTech, Visa, Avenue, MVTec3D), you only need to provide the `root` path. The data will be downloaded and extracted there on the first call to `setup()`.
+</Tip>

@@ -1,0 +1,175 @@
+---
+title: "Callbacks"
+description: "PyTorch Lightning callbacks available in Anomalib for checkpointing, logging, tiling, and timing."
+keywords: ["callbacks", "ModelCheckpoint", "GraphLogger", "LoadModelCallback", "TilerConfigurationCallback", "TimerCallback"]
+---
+
+Anomalib callbacks extend PyTorch Lightning's `Callback` interface. Pass them to the `Engine` via the `callbacks` argument, or let the `Engine` add its defaults automatically.
+
+```python
+from anomalib.engine import Engine
+from anomalib.callbacks import TimerCallback, GraphLogger
+
+engine = Engine(callbacks=[TimerCallback(), GraphLogger()])
+```
+
+---
+
+## ModelCheckpoint
+
+`ModelCheckpoint` extends Lightning's built-in checkpoint callback to support zero-shot and few-shot models — learning types where training may consist only of a validation pass, and the global step counter never advances.
+
+Key differences from the Lightning default:
+
+- Allows saving during both `FITTING` and `VALIDATING` trainer states.
+- Skips saving at training-epoch end for zero-shot and few-shot models, defaulting to validation-epoch end instead.
+- Allows saving even when `global_step` hasn't changed (for zero-shot / few-shot).
+
+```python
+from anomalib.callbacks import ModelCheckpoint
+from anomalib.engine import Engine
+
+checkpoint = ModelCheckpoint(
+    dirpath="checkpoints/",
+    filename="best-model",
+    monitor="val_AUROC",
+    mode="max",
+)
+
+engine = Engine(callbacks=[checkpoint])
+```
+
+All constructor arguments from [`lightning.pytorch.callbacks.ModelCheckpoint`](https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.ModelCheckpoint.html) are accepted.
+
+---
+
+## GraphLogger
+
+`GraphLogger` logs the model's computation graph to the configured logger. Supports TensorBoard, Comet, and Weights & Biases.
+
+- **TensorBoard / Comet**: graph logged at training end.
+- **W&B**: graph logged at training start, but requires at least one backward pass to be populated. May not appear for training-free models like PaDiM.
+
+```python
+from anomalib.callbacks import GraphLogger
+from anomalib.loggers import AnomalibTensorBoardLogger
+from anomalib.engine import Engine
+
+logger = AnomalibTensorBoardLogger()
+engine = Engine(logger=logger, callbacks=[GraphLogger()])
+```
+
+---
+
+## LoadModelCallback
+
+`LoadModelCallback` loads pre-trained weights from a `.pt` or `.pth` state dict file at the start of inference. Use this when you want to load weights separately from running `engine.fit()`.
+
+```python
+from anomalib.callbacks import LoadModelCallback
+from anomalib.engine import Engine
+from anomalib.models import Patchcore
+
+model = Patchcore()
+callback = LoadModelCallback(weights_path="path/to/weights.pt")
+engine = Engine(callbacks=[callback])
+```
+
+<ParamField path="weights_path" type="string" required>
+  Path to a `.pt` or `.pth` file containing a state dict with a `"state_dict"` key.
+</ParamField>
+
+<Note>
+  The callback automatically maps weights to the model's device.
+</Note>
+
+---
+
+## TilerConfigurationCallback
+
+`TilerConfigurationCallback` enables image tiling within a model that supports it. Tiling splits large images into smaller tiles for inference, which is useful when images exceed GPU memory limits.
+
+<Warning>
+  The model must have a `tiler` attribute. If tiling is enabled on an incompatible model, a `ValueError` is raised.
+</Warning>
+
+```python
+from anomalib.callbacks import TilerConfigurationCallback
+from anomalib.data.utils.tiler import ImageUpscaleMode
+from anomalib.engine import Engine
+
+callback = TilerConfigurationCallback(
+    enable=True,
+    tile_size=512,
+    stride=256,
+    mode=ImageUpscaleMode.PADDING,
+)
+
+engine = Engine(callbacks=[callback])
+```
+
+<ParamField path="enable" type="boolean" default="false">
+  Whether to activate tiling. When `False`, the callback has no effect.
+</ParamField>
+
+<ParamField path="tile_size" type="int | Sequence" default="256">
+  Size of each tile in pixels. Pass a single integer for square tiles or a two-element sequence `(height, width)` for rectangular tiles.
+</ParamField>
+
+<ParamField path="stride" type="int | Sequence | None" default="None">
+  Step size between adjacent tiles. Defaults to `tile_size` (no overlap). Smaller values produce more overlap and increase computation.
+</ParamField>
+
+<ParamField path="remove_border_count" type="int" default="0">
+  Number of border pixels to remove from the image before tiling. Useful for eliminating boundary artifacts.
+</ParamField>
+
+<ParamField path="mode" type="ImageUpscaleMode" default="ImageUpscaleMode.PADDING">
+  Strategy for merging overlapping tile predictions back into a full-resolution output.
+</ParamField>
+
+---
+
+## TimerCallback
+
+`TimerCallback` measures and logs training and testing time. At the end of testing it also reports throughput in frames per second.
+
+```python
+from anomalib.callbacks import TimerCallback
+from anomalib.engine import Engine
+
+engine = Engine(callbacks=[TimerCallback()])
+```
+
+The callback logs:
+
+- **Training time** — total seconds from `fit` start to end.
+- **Testing time** — total seconds from `test` start to end.
+- **Throughput** — images per second during testing, shown alongside the batch size.
+
+---
+
+## Using multiple callbacks together
+
+```python
+from anomalib.callbacks import (
+    ModelCheckpoint,
+    TimerCallback,
+    GraphLogger,
+)
+from anomalib.loggers import AnomalibTensorBoardLogger
+from anomalib.engine import Engine
+
+engine = Engine(
+    logger=AnomalibTensorBoardLogger(),
+    callbacks=[
+        ModelCheckpoint(monitor="val_AUROC", mode="max"),
+        TimerCallback(),
+        GraphLogger(),
+    ],
+)
+```
+
+<Tip>
+  The `Engine` automatically adds `ModelCheckpoint` and `TimerCallback` by default. You only need to pass callbacks explicitly when you want to override defaults or add extras.
+</Tip>

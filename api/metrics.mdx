@@ -1,0 +1,259 @@
+---
+title: "Metrics"
+description: "Evaluation metrics for anomaly detection, including AUROC, AUPRO, F1 scores, and the Evaluator that combines them."
+keywords: ["metrics", "AUROC", "AUPRO", "AUPR", "F1Score", "evaluator", "threshold", "anomaly detection"]
+---
+
+Anomalib provides a suite of metrics designed to evaluate anomaly detection models at both image and pixel levels. All metrics inherit from `AnomalibMetric`, which adds batch-aware update logic on top of standard torchmetrics classes.
+
+## AUC metrics
+
+### AUROC
+
+`AUROC` computes the Area Under the Receiver Operating Characteristic curve. It measures how well the model separates normal from anomalous samples across all possible thresholds.
+
+A score of `1.0` indicates perfect separation; `0.5` is random.
+
+```python
+from anomalib.metrics import AUROC
+from anomalib.data import ImageBatch
+import torch
+
+batch = ImageBatch(
+    image=torch.rand(4, 3, 256, 256),
+    pred_score=torch.tensor([0.1, 0.2, 0.8, 0.9]),
+    gt_label=torch.tensor([0, 0, 1, 1]),
+)
+
+auroc = AUROC(fields=["pred_score", "gt_label"])
+score = auroc(batch)
+# tensor(1.0)
+```
+
+You can also update the metric incrementally across batches:
+
+```python
+auroc = AUROC(fields=["pred_score", "gt_label"])
+
+for batch in dataloader:
+    auroc.update(batch)
+
+final_score = auroc.compute()
+```
+
+To generate an ROC curve figure for logging:
+
+```python
+figure, title = auroc.generate_figure()
+```
+
+<ParamField path="fields" type="list[str]" required>
+  Names of the batch fields to extract predictions and labels from. Typically `["pred_score", "gt_label"]` for image-level AUROC.
+</ParamField>
+
+---
+
+### AUPRO
+
+`AUPRO` computes the Area Under the Per-Region Overlap curve, a pixel-level metric for anomaly segmentation. It performs connected component analysis on ground truth masks and averages per-region TPR curves, then computes the area under the average curve up to a configurable FPR limit.
+
+```python
+from anomalib.metrics import AUPRO
+import torch
+
+labels = torch.randint(0, 2, (4, 256, 256), dtype=torch.float32)
+preds = torch.rand_like(labels)
+
+aupro = AUPRO(fpr_limit=0.3)
+score = aupro(preds, labels)
+```
+
+<ParamField path="fpr_limit" type="float" default="0.3">
+  Upper bound for the false positive rate axis. The area is computed and normalized over the range `[0, fpr_limit]`. Increasing this value raises the AUPRO score.
+</ParamField>
+
+---
+
+### AUPR
+
+`AUPR` computes the Area Under the Precision-Recall curve. It is particularly informative on imbalanced datasets where anomalies are rare.
+
+```python
+from anomalib.metrics import AUPR
+from anomalib.data import ImageBatch
+import torch
+
+batch = ImageBatch(
+    image=torch.rand(4, 3, 256, 256),
+    pred_score=torch.tensor([0.1, 0.2, 0.8, 0.9]),
+    gt_label=torch.tensor([0, 0, 1, 1]),
+)
+
+aupr = AUPR(fields=["pred_score", "gt_label"])
+score = aupr(batch)
+```
+
+---
+
+## F1 metrics
+
+### F1Score
+
+`F1Score` computes the standard F1 score (harmonic mean of precision and recall) at a fixed threshold. It requires binarized predictions via `pred_label`.
+
+```python
+from anomalib.metrics import F1Score
+from anomalib.data import ImageBatch
+import torch
+
+batch = ImageBatch(
+    image=torch.rand(4, 3, 256, 256),
+    pred_label=torch.tensor([0, 0, 1, 1]),
+    gt_label=torch.tensor([0, 0, 1, 1]),
+)
+
+f1 = F1Score(fields=["pred_label", "gt_label"])
+score = f1(batch)
+# tensor(1.0)
+```
+
+---
+
+### F1Max
+
+`F1Max` sweeps all possible thresholds to find the one that maximizes the F1 score. After calling `compute()`, the optimal threshold is stored in `f1_max.threshold`.
+
+```python
+from anomalib.metrics import F1Max
+from anomalib.data import ImageBatch
+import torch
+
+batch = ImageBatch(
+    image=torch.rand(4, 3, 256, 256),
+    pred_score=torch.tensor([0.1, 0.4, 0.35, 0.8]),
+    gt_label=torch.tensor([0, 0, 1, 1]),
+)
+
+f1_max = F1Max(fields=["pred_score", "gt_label"])
+score = f1_max(batch)
+# tensor(0.8000)
+
+threshold = f1_max.threshold
+# tensor(0.3500)
+```
+
+---
+
+## Threshold metrics
+
+Threshold metrics convert continuous anomaly scores into binary predictions. They are used internally by the `AnomalibModule` to produce `pred_label` from `pred_score`.
+
+### F1AdaptiveThreshold
+
+`F1AdaptiveThreshold` automatically finds the threshold that maximizes F1 score on the validation set.
+
+```python
+from anomalib.metrics import F1AdaptiveThreshold
+import torch
+
+threshold = F1AdaptiveThreshold()
+preds = torch.tensor([0.1, 0.4, 0.6, 0.9])
+labels = torch.tensor([0, 0, 1, 1])
+threshold.update(preds, labels)
+value = threshold.compute()
+# tensor(0.5)
+```
+
+### ManualThreshold
+
+`ManualThreshold` applies a fixed user-specified threshold.
+
+```python
+from anomalib.metrics import ManualThreshold
+
+threshold = ManualThreshold(threshold=0.5)
+```
+
+<ParamField path="threshold" type="float" required>
+  The fixed threshold value applied to anomaly scores to produce binary predictions.
+</ParamField>
+
+---
+
+## Evaluator
+
+`Evaluator` is a PyTorch Lightning `Callback` and `nn.Module` that combines multiple `AnomalibMetric` instances, updates them at the end of each batch, and computes and logs them at the end of each epoch.
+
+Pass an `Evaluator` to your model at initialization, or let the model use its default evaluator.
+
+```python
+from anomalib.metrics import AUROC, F1Score, Evaluator
+
+auroc = AUROC(fields=["pred_score", "gt_label"])
+f1 = F1Score(fields=["pred_label", "gt_label"])
+
+evaluator = Evaluator(
+    val_metrics=[auroc],
+    test_metrics=[auroc, f1],
+)
+```
+
+Then pass the evaluator to your model:
+
+```python
+from anomalib.models import Patchcore
+from anomalib.engine import Engine
+
+model = Patchcore(evaluator=evaluator)
+engine = Engine()
+engine.fit(model=model, datamodule=datamodule)
+```
+
+<ParamField path="val_metrics" type="AnomalibMetric | list[AnomalibMetric] | None" default="None">
+  Metrics computed and logged at the end of each validation epoch.
+</ParamField>
+
+<ParamField path="test_metrics" type="AnomalibMetric | list[AnomalibMetric] | None" default="None">
+  Metrics computed and logged at the end of each test epoch.
+</ParamField>
+
+<ParamField path="compute_on_cpu" type="boolean" default="true">
+  Move metric tensors to CPU before computing. Automatically set to `False` when using multiple GPUs.
+</ParamField>
+
+---
+
+## Score normalization
+
+`MinMax` normalizes anomaly scores to the `[0, 1]` range based on the minimum and maximum scores seen during training. It is applied as a post-processing step before thresholding.
+
+```python
+from anomalib.metrics import MinMax
+
+min_max = MinMax()
+min_max.update(pred_scores)
+normalized = min_max.normalize(raw_score)
+```
+
+---
+
+## Complete example
+
+```python
+from anomalib.data import MVTecAD
+from anomalib.models import Patchcore
+from anomalib.engine import Engine
+from anomalib.metrics import AUROC, F1Max, Evaluator
+
+auroc = AUROC(fields=["pred_score", "gt_label"])
+f1_max = F1Max(fields=["pred_score", "gt_label"])
+
+evaluator = Evaluator(test_metrics=[auroc, f1_max])
+
+datamodule = MVTecAD(category="bottle")
+model = Patchcore(evaluator=evaluator)
+engine = Engine()
+
+engine.fit(model=model, datamodule=datamodule)
+results = engine.test(model=model, datamodule=datamodule)
+```

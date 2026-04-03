@@ -1,0 +1,150 @@
+---
+title: "Benchmarking"
+description: "Evaluate and compare multiple anomaly detection models across datasets and accelerators using Anomalib's benchmarking pipeline."
+keywords: ["benchmarking", "benchmark", "comparison", "AUROC", "F1", "MVTec", "Padim", "Patchcore"]
+---
+
+The Anomalib benchmarking pipeline lets you run a grid search over models, datasets, categories, and accelerators in a single command, then collect the results in a unified report.
+
+<Warning>
+  The benchmarking pipeline is experimental. Its API and config format may change in future releases.
+</Warning>
+
+## Running a benchmark
+
+```bash
+anomalib benchmark --config tools/experimental/benchmarking/sample.yaml
+```
+
+Or run the benchmark script directly:
+
+```bash
+python tools/experimental/benchmarking/benchmark.py \
+  --config tools/experimental/benchmarking/sample.yaml
+```
+
+## Benchmark config file
+
+The config file defines the grid of experiments to run. Each `grid` key becomes a dimension of the search:
+
+```yaml
+# tools/experimental/benchmarking/sample.yaml
+accelerator:
+  - cuda
+  - cpu
+
+benchmark:
+  seed: 42
+  model:
+    class_path:
+      grid:
+        - Padim
+        - Patchcore
+  data:
+    class_path: MVTecAD
+    init_args:
+      category:
+        grid:
+          - bottle
+          - capsule
+```
+
+This config runs 2 models × 2 categories × 2 accelerators = **8 experiments** in total.
+
+## Comparing multiple models across datasets
+
+To benchmark all image models against multiple MVTec categories:
+
+```yaml
+accelerator:
+  - cuda
+
+benchmark:
+  seed: 42
+  model:
+    class_path:
+      grid:
+        - Padim
+        - Patchcore
+        - Stfpm
+        - Fastflow
+  data:
+    class_path: MVTecAD
+    init_args:
+      category:
+        grid:
+          - bottle
+          - cable
+          - capsule
+          - carpet
+          - grid
+          - hazelnut
+          - leather
+          - metal_nut
+          - pill
+          - screw
+          - tile
+          - toothbrush
+          - transistor
+          - wood
+          - zipper
+```
+
+<Tip>
+  Set a fixed `seed` to ensure reproducible results across runs.
+</Tip>
+
+## Understanding benchmark results
+
+The benchmark pipeline logs results for each experiment. Key metrics to look at:
+
+<CardGroup cols={2}>
+  <Card title="image_AUROC" icon="chart-line">
+    Area under the ROC curve at image level. Higher is better (max 1.0). The primary metric for anomaly classification.
+  </Card>
+  <Card title="pixel_AUROC" icon="chart-area">
+    Area under the ROC curve at pixel level. Measures localization quality. Only available for segmentation datasets with ground-truth masks.
+  </Card>
+  <Card title="image_F1Score" icon="equals">
+    F1 score at image level at the optimal threshold. Balances precision and recall.
+  </Card>
+  <Card title="Training time" icon="clock">
+    Total wall-clock time for fitting the model. Reported by the `TimerCallback` that the engine adds automatically.
+  </Card>
+</CardGroup>
+
+## Per-model results
+
+Individual model results on MVTec AD are maintained in each model's README. Some reference points:
+
+- **Patchcore** (`wide_resnet50_2`, layers `[layer2, layer3]`) typically achieves ~99% image AUROC on MVTec AD.
+- **Padim** is faster to train and produces competitive results with lower memory usage.
+- **Stfpm** is a teacher-student model suited for edge deployment.
+
+Refer to `src/anomalib/models/image/<model_name>/README.md` for tables of reported results per category.
+
+## Accelerator comparison
+
+Running the benchmark on both `cuda` and `cpu` accelerators lets you measure the inference speed trade-off:
+
+```yaml
+accelerator:
+  - cuda
+  - cpu
+
+benchmark:
+  seed: 42
+  model:
+    class_path: Patchcore
+  data:
+    class_path: MVTecAD
+    init_args:
+      category:
+        grid:
+          - bottle
+          - capsule
+```
+
+<Note>
+  For Intel GPU benchmarking, use `xpu` as the accelerator value and ensure PyTorch XPU support is installed. See [Training on Intel GPUs](/guides/training#training-on-intel-gpus-xpu).
+</Note>

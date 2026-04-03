@@ -1,0 +1,520 @@
+---
+title: "Engine"
+description: "The central training and inference orchestrator for anomaly detection models."
+keywords: ["engine", "training", "inference", "export", "fit", "test", "predict"]
+---
+
+The `Engine` class wraps PyTorch Lightning's `Trainer` with additional functionality specific to anomaly detection. It manages the full model lifecycle: training, validation, testing, prediction, and export.
+
+```python
+from anomalib.engine import Engine
+from anomalib.models import Padim
+from anomalib.data import MVTecAD
+
+engine = Engine()
+model = Padim()
+datamodule = MVTecAD()
+
+engine.train(model, datamodule=datamodule)
+```
+
+## Constructor
+
+```python
+Engine(
+    callbacks=None,
+    logger=None,
+    default_root_dir="results",
+    **kwargs
+)
+```
+
+<ParamField path="callbacks" type="list[Callback] | None" default="None">
+  A callback or list of PyTorch Lightning callbacks to attach to the trainer.
+</ParamField>
+
+<ParamField path="logger" type="Logger | Iterable[Logger] | bool | None" default="None">
+  Logger or collection of loggers to use for experiment tracking. Accepts any PyTorch Lightning-compatible logger. Set to `False` to disable logging.
+</ParamField>
+
+<ParamField path="default_root_dir" type="str | Path" default='"results"'>
+  Root directory for saving trainer outputs including checkpoints, logs, and exported models. The engine automatically creates subdirectories based on model name, dataset name, and category.
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Additional keyword arguments forwarded directly to PyTorch Lightning's `Trainer`. Supports all standard `Trainer` arguments such as `max_epochs`, `accelerator`, `devices`, `strategy`, `precision`, `barebones`, etc.
+</ParamField>
+
+<Tip>
+  Model-specific trainer arguments (such as `max_epochs` and `val_check_interval`) are automatically applied when you pass a model to any engine method. They override the values you set in the constructor.
+</Tip>
+
+## Properties
+
+<ResponseField name="trainer" type="Trainer">
+  The underlying PyTorch Lightning `Trainer` instance. Raises `UnassignedError` if accessed before any engine method has been called.
+</ResponseField>
+
+<ResponseField name="model" type="AnomalibModule">
+  The model currently assigned to the trainer. Raises `UnassignedError` if no model has been assigned yet.
+</ResponseField>
+
+<ResponseField name="best_model_path" type="str | None">
+  Path to the best model checkpoint saved during the last `fit` or `train` call. Returns `None` if no checkpoint callback is configured.
+</ResponseField>
+
+## Methods
+
+### `fit`
+
+Train the model. For zero-shot and few-shot models, this runs validation only (no gradient-based training is needed).
+
+```python
+engine.fit(
+    model,
+    train_dataloaders=None,
+    val_dataloaders=None,
+    datamodule=None,
+    ckpt_path=None,
+)
+```
+
+<ParamField path="model" type="AnomalibModule" required>
+  The anomaly detection model to train.
+</ParamField>
+
+<ParamField path="train_dataloaders" type="TRAIN_DATALOADERS | None" default="None">
+  One or more PyTorch `DataLoader` instances for training. Ignored when `datamodule` is provided.
+</ParamField>
+
+<ParamField path="val_dataloaders" type="EVAL_DATALOADERS | None" default="None">
+  One or more PyTorch `DataLoader` instances for validation. Ignored when `datamodule` is provided.
+</ParamField>
+
+<ParamField path="datamodule" type="AnomalibDataModule | None" default="None">
+  A Lightning data module that provides train and validation dataloaders. Takes precedence over raw dataloaders.
+</ParamField>
+
+<ParamField path="ckpt_path" type="str | Path | None" default="None">
+  Path to a checkpoint to resume training from.
+</ParamField>
+
+<CodeGroup>
+
+```python datamodule
+from anomalib.engine import Engine
+from anomalib.models import Patchcore
+from anomalib.data import MVTecAD
+
+engine = Engine()
+model = Patchcore()
+datamodule = MVTecAD(category="bottle")
+
+engine.fit(model, datamodule=datamodule)
+```
+
+```python dataloaders
+from anomalib.engine import Engine
+from anomalib.models import Padim
+from torch.utils.data import DataLoader
+
+engine = Engine()
+model = Padim()
+
+engine.fit(
+    model,
+    train_dataloaders=train_loader,
+    val_dataloaders=val_loader,
+)
+```
+
+</CodeGroup>
+
+---
+
+### `validate`
+
+Run validation on the model and return metrics.
+
+```python
+engine.validate(
+    model=None,
+    dataloaders=None,
+    ckpt_path=None,
+    verbose=True,
+    datamodule=None,
+)
+```
+
+<ParamField path="model" type="AnomalibModule | None" default="None">
+  Model to validate. Uses the model from a previous run if not provided.
+</ParamField>
+
+<ParamField path="dataloaders" type="EVAL_DATALOADERS | None" default="None">
+  Dataloaders to validate against.
+</ParamField>
+
+<ParamField path="ckpt_path" type="str | Path | None" default="None">
+  Path to a checkpoint to load. Accepts `"best"`, `"last"`, `"hpc"`, or a file path.
+</ParamField>
+
+<ParamField path="verbose" type="boolean" default="True">
+  Print validation results to the console.
+</ParamField>
+
+<ParamField path="datamodule" type="AnomalibDataModule | None" default="None">
+  Data module that provides the validation dataloader.
+</ParamField>
+
+**Returns:** `_EVALUATE_OUTPUT | None` — a list of metric dictionaries, one per dataloader.
+
+---
+
+### `test`
+
+Run testing on the model. For zero-shot and few-shot models, automatically runs validation first to collect normalization statistics and thresholds.
+
+```python
+engine.test(
+    model=None,
+    dataloaders=None,
+    ckpt_path=None,
+    verbose=True,
+    datamodule=None,
+)
+```
+
+<ParamField path="model" type="AnomalibModule | None" default="None">
+  Model to test. Uses the model from a previous run if not provided.
+</ParamField>
+
+<ParamField path="dataloaders" type="EVAL_DATALOADERS | None" default="None">
+  Test dataloaders.
+</ParamField>
+
+<ParamField path="ckpt_path" type="str | Path | None" default="None">
+  Checkpoint path. Accepts `"best"`, `"last"`, `"hpc"`, or a file path. If `None` and a model instance is passed, uses current weights.
+</ParamField>
+
+<ParamField path="verbose" type="boolean" default="True">
+  Print test results to the console.
+</ParamField>
+
+<ParamField path="datamodule" type="AnomalibDataModule | None" default="None">
+  Data module that provides the test dataloader.
+</ParamField>
+
+**Returns:** `_EVALUATE_OUTPUT` — a list of metric dictionaries, one per dataloader.
+
+```python
+from anomalib.data import MVTecAD
+from anomalib.models import Padim
+from anomalib.engine import Engine
+
+datamodule = MVTecAD()
+model = Padim()
+engine = Engine()
+
+engine.fit(model, datamodule=datamodule)
+results = engine.test(model, datamodule=datamodule)
+# [{'image_AUROC': 0.98, 'image_F1Score': 0.95, ...}]
+```
+
+---
+
+### `predict`
+
+Run inference on new data. Automatically runs validation before predicting for zero-shot and few-shot models when no checkpoint is provided.
+
+```python
+engine.predict(
+    model=None,
+    dataloaders=None,
+    datamodule=None,
+    dataset=None,
+    return_predictions=None,
+    ckpt_path=None,
+    data_path=None,
+)
+```
+
+<ParamField path="model" type="AnomalibModule | None" default="None">
+  Model to use for inference. Required if no model was assigned in a previous run.
+</ParamField>
+
+<ParamField path="dataloaders" type="EVAL_DATALOADERS | None" default="None">
+  Dataloaders providing samples to predict on.
+</ParamField>
+
+<ParamField path="datamodule" type="AnomalibDataModule | None" default="None">
+  Data module providing the predict dataloader.
+</ParamField>
+
+<ParamField path="dataset" type="Dataset | PredictDataset | None" default="None">
+  A `torch.utils.data.Dataset` or `PredictDataset` instance. Wrapped in a `DataLoader` automatically.
+</ParamField>
+
+<ParamField path="return_predictions" type="boolean | None" default="None">
+  Whether to return predictions to the caller. Defaults to `True` unless spawned processes are used.
+</ParamField>
+
+<ParamField path="ckpt_path" type="str | Path | None" default="None">
+  Checkpoint path. Accepts `"best"`, `"last"`, `"hpc"`, or a file path.
+</ParamField>
+
+<ParamField path="data_path" type="str | Path | None" default="None">
+  Path to a single image or a folder of images. A `PredictDataset` is created automatically.
+</ParamField>
+
+**Returns:** `_PREDICT_OUTPUT | None` — model predictions.
+
+<CodeGroup>
+
+```python from checkpoint
+from anomalib.engine import Engine
+from anomalib.models import Padim
+from anomalib.data import MVTecAD
+
+engine = Engine()
+model = Padim()
+datamodule = MVTecAD()
+
+predictions = engine.predict(
+    model,
+    datamodule=datamodule,
+    ckpt_path="results/Padim/MVTecAD/bottle/latest/weights/lightning/model.ckpt",
+)
+```
+
+```python from path
+from anomalib.engine import Engine
+from anomalib.models import Padim
+
+engine = Engine()
+model = Padim()
+
+predictions = engine.predict(
+    model,
+    data_path="datasets/MVTecAD/bottle/test/broken_large",
+    ckpt_path="path/to/model.ckpt",
+)
+```
+
+</CodeGroup>
+
+---
+
+### `train`
+
+Convenience method that runs `fit` followed immediately by `test`. Returns the test results.
+
+```python
+engine.train(
+    model,
+    train_dataloaders=None,
+    val_dataloaders=None,
+    test_dataloaders=None,
+    datamodule=None,
+    ckpt_path=None,
+)
+```
+
+<ParamField path="model" type="AnomalibModule" required>
+  Model to train and test.
+</ParamField>
+
+<ParamField path="train_dataloaders" type="TRAIN_DATALOADERS | None" default="None">
+  Training dataloaders.
+</ParamField>
+
+<ParamField path="val_dataloaders" type="EVAL_DATALOADERS | None" default="None">
+  Validation dataloaders.
+</ParamField>
+
+<ParamField path="test_dataloaders" type="EVAL_DATALOADERS | None" default="None">
+  Test dataloaders.
+</ParamField>
+
+<ParamField path="datamodule" type="AnomalibDataModule | None" default="None">
+  Data module providing all dataloaders.
+</ParamField>
+
+<ParamField path="ckpt_path" type="str | Path | None" default="None">
+  Checkpoint path to resume from.
+</ParamField>
+
+**Returns:** `_EVALUATE_OUTPUT` — test results.
+
+```python
+from anomalib.engine import Engine
+from anomalib.models import Patchcore
+from anomalib.data import MVTecAD
+
+engine = Engine()
+results = engine.train(
+    model=Patchcore(),
+    datamodule=MVTecAD(category="cable"),
+)
+```
+
+---
+
+### `export`
+
+Export a trained model to PyTorch (`.pt`), ONNX (`.onnx`), or OpenVINO (`.xml`/`.bin`) format.
+
+```python
+engine.export(
+    model,
+    export_type,
+    export_root=None,
+    model_file_name="model",
+    input_size=None,
+    compression_type=None,
+    datamodule=None,
+    metric=None,
+    max_drop=0.01,
+    ov_kwargs=None,
+    onnx_kwargs=None,
+    ckpt_path=None,
+)
+```
+
+<ParamField path="model" type="AnomalibModule" required>
+  Trained model to export.
+</ParamField>
+
+<ParamField path="export_type" type="ExportType | str" required>
+  Target export format. One of `"torch"`, `"onnx"`, or `"openvino"`.
+</ParamField>
+
+<ParamField path="export_root" type="str | Path | None" default="None">
+  Output directory. Defaults to `trainer.default_root_dir` when not set.
+</ParamField>
+
+<ParamField path="model_file_name" type="string" default='"model"'>
+  Base name for the exported model file (without extension).
+</ParamField>
+
+<ParamField path="input_size" type="tuple[int, int] | None" default="None">
+  Static input shape `(height, width)` used when exporting to ONNX or OpenVINO.
+</ParamField>
+
+<ParamField path="compression_type" type="CompressionType | None" default="None">
+  OpenVINO compression type. Options: `FP16`, `INT8_PTQ`, `INT8_ACQ`.
+</ParamField>
+
+<ParamField path="datamodule" type="AnomalibDataModule | None" default="None">
+  Required when using `INT8_PTQ` or `INT8_ACQ` quantization.
+</ParamField>
+
+<ParamField path="metric" type="Metric | str | None" default="None">
+  Quality metric for `INT8_ACQ` quantization. Defaults to image-level `F1Score` when not provided.
+</ParamField>
+
+<ParamField path="max_drop" type="number" default="0.01">
+  Maximum acceptable accuracy drop during `INT8_ACQ` quantization. Value between 0 and 1.
+</ParamField>
+
+<ParamField path="ov_kwargs" type="object | None" default="None">
+  Extra keyword arguments forwarded to OpenVINO's model optimizer.
+</ParamField>
+
+<ParamField path="onnx_kwargs" type="object | None" default="None">
+  Extra keyword arguments forwarded to `torch.onnx.export`.
+</ParamField>
+
+<ParamField path="ckpt_path" type="str | Path | None" default="None">
+  Checkpoint to load weights from before exporting.
+</ParamField>
+
+**Returns:** `Path | None` — path to the exported model file.
+
+<Tabs>
+  <Tab title="PyTorch">
+    ```python
+    from anomalib.deploy import ExportType
+
+    path = engine.export(
+        model=model,
+        export_type=ExportType.TORCH,
+        ckpt_path="results/.../weights/lightning/model.ckpt",
+    )
+    ```
+  </Tab>
+  <Tab title="ONNX">
+    ```python
+    from anomalib.deploy import ExportType
+
+    path = engine.export(
+        model=model,
+        export_type=ExportType.ONNX,
+        input_size=(256, 256),
+        ckpt_path="results/.../weights/lightning/model.ckpt",
+    )
+    ```
+  </Tab>
+  <Tab title="OpenVINO">
+    ```python
+    from anomalib.deploy import ExportType, CompressionType
+
+    path = engine.export(
+        model=model,
+        export_type=ExportType.OPENVINO,
+        input_size=(256, 256),
+        compression_type=CompressionType.FP16,
+        ckpt_path="results/.../weights/lightning/model.ckpt",
+    )
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### `from_config` (classmethod)
+
+Create an `Engine`, model, and datamodule from a YAML configuration file.
+
+```python
+engine, model, datamodule = Engine.from_config(
+    config_path="anomalib_full_config.yaml",
+)
+```
+
+<ParamField path="config_path" type="str | Path" required>
+  Path to a full Anomalib configuration file.
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Key-value pairs that override values in the config file. Use dot notation for nested keys, e.g. `data.train_batch_size=8`.
+</ParamField>
+
+**Returns:** `tuple[Engine, AnomalibModule, AnomalibDataModule]`
+
+```python
+engine, model, datamodule = Engine.from_config(
+    config_path="config.yaml",
+    **{"data.train_batch_size": 8},
+)
+engine.fit(model=model, datamodule=datamodule)
+```
+
+## Output directory structure
+
+After training, results are organized as:
+
+```
+results/
+└── <ModelName>/
+    └── <DatasetName>/
+        └── <category>/
+            └── latest/              # or a versioned directory
+                ├── weights/
+                │   └── lightning/
+                │       └── model.ckpt
+                └── ...
+```
+
+<Note>
+  When you call `fit` or `train`, a versioned directory is created (e.g. `v1`, `v2`). The `latest` symlink always points to the most recent run. When you call `test` or `predict`, the engine resolves and reuses an existing versioned directory.
+</Note>

@@ -1,0 +1,284 @@
+---
+title: "CLI Reference"
+description: "Complete reference for the anomalib command-line interface, including all subcommands, flags, and config file usage."
+keywords: ["CLI", "command line", "anomalib train", "anomalib test", "anomalib predict", "anomalib export", "anomalib benchmark", "install"]
+---
+
+Anomalib ships with a fully featured CLI powered by [jsonargparse](https://jsonargparse.readthedocs.io/). Every subcommand accepts both command-line flags and a YAML or JSON configuration file.
+
+```bash
+anomalib --help
+```
+
+---
+
+## Configuration files
+
+Pass a configuration file with `-c` or `--config`. Config files can set any argument that would otherwise be passed on the command line:
+
+```bash
+anomalib train --config path/to/config.yaml
+```
+
+Example config file:
+
+```yaml
+model:
+  class_path: anomalib.models.Patchcore
+  init_args:
+    backbone: wide_resnet50_2
+
+data:
+  class_path: anomalib.data.MVTecAD
+  init_args:
+    category: bottle
+    image_size: [256, 256]
+
+trainer:
+  max_epochs: 1
+  accelerator: gpu
+
+default_root_dir: results/
+```
+
+### Overriding config values on the command line
+
+Flags passed on the command line take precedence over the config file:
+
+```bash
+anomalib train \
+  --config config.yaml \
+  --data.init_args.category cable \
+  --trainer.max_epochs 3
+```
+
+Nested keys use dot notation to target specific fields.
+
+---
+
+## Commands
+
+<AccordionGroup>
+
+<Accordion title="anomalib train">
+
+Trains a model and then runs the test set on the trained model, all in a single command.
+
+```bash
+anomalib train \
+  --model anomalib.models.Patchcore \
+  --data anomalib.data.MVTecAD \
+  --data.init_args.category bottle \
+  --default_root_dir results/
+```
+
+**Key flags:**
+
+| Flag | Description |
+|---|---|
+| `--model` | Model class path (e.g., `anomalib.models.Patchcore`). Required. |
+| `--data` | Data module class path (e.g., `anomalib.data.MVTecAD`). |
+| `--trainer.*` | Any PyTorch Lightning `Trainer` argument, e.g., `--trainer.max_epochs 10`. |
+| `--optimizer` | Optimizer class path and arguments. |
+| `--lr_scheduler` | Learning rate scheduler class path and arguments. |
+| `--default_root_dir` | Root directory for saving results. Defaults to `./results`. |
+| `--seed_everything` | Integer seed or `true` for a random seed. |
+| `-c` / `--config` | Path to a YAML or JSON config file. |
+
+</Accordion>
+
+<Accordion title="anomalib test">
+
+Runs the test set on an already-trained model from a checkpoint.
+
+```bash
+anomalib test \
+  --model anomalib.models.Patchcore \
+  --data anomalib.data.MVTecAD \
+  --data.init_args.category bottle \
+  --ckpt_path results/Patchcore/MVTecAD/latest/weights/lightning/model.ckpt
+```
+
+**Key flags:**
+
+| Flag | Description |
+|---|---|
+| `--model` | Model class path. Required. |
+| `--data` | Data module class path. |
+| `--ckpt_path` | Path to a Lightning checkpoint to load for testing. |
+| `--trainer.*` | Any Lightning `Trainer` argument. |
+| `-c` / `--config` | Path to a config file. |
+
+</Accordion>
+
+<Accordion title="anomalib predict">
+
+Runs inference on new images and returns anomaly scores and maps. The `--data` argument accepts a dataset, data module, data loader, a directory path, or a single image path.
+
+```bash
+anomalib predict \
+  --model anomalib.models.Patchcore \
+  --data path/to/images/ \
+  --ckpt_path path/to/model.ckpt
+```
+
+Predict on a single image:
+
+```bash
+anomalib predict \
+  --model anomalib.models.Patchcore \
+  --data path/to/image.jpg \
+  --ckpt_path path/to/model.ckpt
+```
+
+**Key flags:**
+
+| Flag | Description |
+|---|---|
+| `--model` | Model class path. Required. |
+| `--data` | Data source: a class path, directory, or image path. Required. |
+| `--ckpt_path` | Path to a Lightning checkpoint. |
+| `--trainer.*` | Any Lightning `Trainer` argument. |
+| `-c` / `--config` | Path to a config file. |
+
+</Accordion>
+
+<Accordion title="anomalib export">
+
+Exports a trained model to PyTorch, ONNX, or OpenVINO IR format.
+
+```bash
+anomalib export \
+  --model anomalib.models.Patchcore \
+  --ckpt_path path/to/model.ckpt \
+  --export_type openvino
+```
+
+With INT8 post-training quantization:
+
+```bash
+anomalib export \
+  --model anomalib.models.Patchcore \
+  --ckpt_path path/to/model.ckpt \
+  --export_type openvino \
+  --compression_type int8_ptq \
+  --data anomalib.data.MVTecAD \
+  --data.init_args.category bottle
+```
+
+**Key flags:**
+
+| Flag | Description |
+|---|---|
+| `--model` | Model class path. Required. |
+| `--ckpt_path` | Path to a Lightning checkpoint. Required. |
+| `--export_type` | Export format: `torch`, `onnx`, or `openvino`. |
+| `--compression_type` | OpenVINO compression: `fp16`, `int8`, `int8_ptq`, `int8_acq`. |
+| `--data` | Data module for calibration (required for `int8_ptq` / `int8_acq`). |
+| `--default_root_dir` | Directory where exported files are written. |
+| `-c` / `--config` | Path to a config file. |
+
+</Accordion>
+
+<Accordion title="anomalib benchmark">
+
+Runs the benchmarking pipeline to compare models and datasets according to a grid configuration.
+
+```bash
+anomalib benchmark --config benchmark_config.yaml
+```
+
+The config specifies a `grid` of model and dataset combinations to evaluate. Results are collected and logged per combination.
+
+See the [Pipelines reference](/api/pipelines) for the full config format.
+
+**Key flags:**
+
+| Flag | Description |
+|---|---|
+| `--config` | Path to the benchmark YAML config. Required. |
+
+</Accordion>
+
+<Accordion title="anomalib hpo">
+
+Runs hyperparameter optimization using a sweep configuration. HPO integrates with experiment tracking tools such as Weights & Biases and Comet.ml.
+
+```bash
+anomalib hpo --config hpo_config.yaml
+```
+
+**Key flags:**
+
+| Flag | Description |
+|---|---|
+| `--config` | Path to the HPO sweep config. Required. |
+
+</Accordion>
+
+<Accordion title="anomalib install">
+
+Installs optional dependencies for a specific feature set.
+
+```bash
+anomalib install --option full
+```
+
+Available options:
+
+| Option | What it installs |
+|---|---|
+| `full` | All optional dependencies (default). |
+| `core` | Core training dependencies only. |
+| `dev` | Development and testing tools. |
+| `loggers` | Experiment tracking integrations (W&B, Comet, TensorBoard). |
+| `notebooks` | Jupyter notebook dependencies. |
+| `openvino` | OpenVINO runtime and model optimizer. |
+
+**Key flags:**
+
+| Flag | Description |
+|---|---|
+| `--option` | Dependency group to install. Defaults to `full`. |
+| `-v` / `--verbose` | Enable verbose logging during installation. |
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Subcommands for Lightning Trainer
+
+The following subcommands map directly to PyTorch Lightning `Trainer` methods:
+
+| Subcommand | Equivalent |
+|---|---|
+| `anomalib fit` | `Trainer.fit()` |
+| `anomalib validate` | `Trainer.validate()` |
+| `anomalib test` | `Trainer.test()` |
+
+These accept the same flags as `anomalib train` but invoke a specific stage only.
+
+---
+
+## Programmatic use
+
+You can invoke `AnomalibCLI` programmatically, which is useful for testing or scripting:
+
+```python
+from anomalib.cli import AnomalibCLI
+
+cli = AnomalibCLI(
+    args=["train", "--model", "anomalib.models.Patchcore", "--data", "anomalib.data.MVTecAD"],
+    run=True,
+)
+```
+
+Set `run=False` to parse arguments and instantiate classes without executing:
+
+```python
+cli = AnomalibCLI(args=["train", "--config", "config.yaml"], run=False)
+model = cli.model
+engine = cli.engine
+```

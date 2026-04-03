@@ -1,0 +1,471 @@
+---
+title: "Benchmark datasets"
+description: "All built-in datasets in Anomalib, organised by modality: image, video, and depth."
+keywords: ["anomalib", "MVTecAD", "VisA", "BTech", "Avenue", "MVTec3D", "benchmark datasets"]
+---
+
+Anomalib ships with datamodules for the most widely used anomaly detection benchmarks. Most datasets are downloaded automatically on first use. A few require manual download — these are noted inline.
+
+<Note>
+All built-in datasets are released under licences that restrict commercial use (typically CC BY-NC-SA 4.0). Check each dataset's original licence before using it in a production system.
+</Note>
+
+## Image datasets
+
+<AccordionGroup>
+
+  <Accordion title="MVTecAD — MVTec Anomaly Detection">
+    The most widely used industrial anomaly detection benchmark. It contains 15 categories of objects and textures with pixel-level ground-truth masks for anomaly segmentation. The dataset downloads automatically.
+
+    **Categories (15):** bottle, cable, capsule, carpet, grid, hazelnut, leather, metal_nut, pill, screw, tile, toothbrush, transistor, wood, zipper
+
+    ```python
+    from anomalib.data import MVTecAD
+
+    datamodule = MVTecAD(
+        root="./datasets/MVTecAD",
+        category="bottle",
+        train_batch_size=32,
+        eval_batch_size=32,
+        num_workers=8,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Bergmann et al., CVPR 2019 / IJCV 2021. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="MVTecAD2 — MVTec Anomaly Detection 2">
+    The successor to MVTecAD with more challenging lighting and appearance conditions. It provides three test sets: a public set with ground truth for local evaluation, and two private sets (standard and mixed lighting) for official leaderboard submission.
+
+    **Default category:** `sheet_metal`
+
+    ```python
+    from anomalib.data import MVTecAD2
+
+    # Local evaluation using the public test set
+    datamodule = MVTecAD2(
+        root="./datasets/MVTec_AD_2",
+        category="sheet_metal",
+        test_type="public",
+    )
+
+    # Leaderboard submission using the private test set
+    datamodule = MVTecAD2(
+        root="./datasets/MVTec_AD_2",
+        category="sheet_metal",
+        test_type="private",
+    )
+    datamodule.setup()
+    ```
+
+    The `test_type` parameter accepts `"public"`, `"private"`, or `"private_mixed"`. You can also switch at runtime:
+
+    ```python
+    datamodule.setup()
+    loader = datamodule.test_dataloader(test_type="private_mixed")
+    ```
+
+    **Reference:** Heckler-Kram et al., arXiv 2024. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="MVTecLOCO — MVTec Logical Constraints Anomaly Detection">
+    Extends MVTecAD with logical anomalies — defects that require understanding global scene structure rather than just local texture. It distinguishes between structural anomalies (local defects) and logical anomalies (constraint violations).
+
+    **Categories (5):** breakfast_box, juice_bottle, pushpins, screw_bag, splicing_connectors
+
+    ```python
+    from anomalib.data import MVTecLOCO
+
+    datamodule = MVTecLOCO(
+        root="./datasets/MVTec_LOCO",
+        category="breakfast_box",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Bergmann et al., CVPR 2022. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="BTech — BeanTech Anomaly Detection">
+    An industrial surface defect dataset with 3 categories of manufactured parts. The dataset downloads automatically and converts `.bmp` images to `.png` on first use.
+
+    **Categories (3):** 01, 02, 03
+
+    ```python
+    from anomalib.data import BTech
+
+    datamodule = BTech(
+        root="./datasets/BTech",
+        category="01",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Mishra et al., Pattern Recognition 2024. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="VisA — Visual Anomaly Dataset">
+    A dataset of 12 object categories captured in controlled lab conditions. It uses a 1-class train/test split protocol (only normal samples in training). Downloads automatically.
+
+    **Categories (12):** candle, capsules, cashew, chewinggum, fryum, macaroni1, macaroni2, pcb1, pcb2, pcb3, pcb4, pipe_fryum
+
+    ```python
+    from anomalib.data import Visa
+
+    datamodule = Visa(
+        root="./datasets/visa",
+        category="capsules",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Zou et al., ECCV 2022. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="Kolektor — Kolektor Surface-Defect Dataset">
+    Electrical commutators photographed on a production line. No category argument is required — the entire dataset is treated as a single class. Downloads automatically.
+
+    ```python
+    from anomalib.data import Kolektor
+
+    datamodule = Kolektor(
+        root="./datasets/kolektor",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Tabernik et al., Journal of Intelligent Manufacturing 2020. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="MPDD — Metal Parts Defect Detection Dataset">
+    A benchmark for visual defect detection in metal parts manufacturing with 6 categories and pixel-level ground-truth masks.
+
+    <Note>
+    MPDD requires manual download from OneDrive. Place the extracted files at the path you pass as `root`.
+    </Note>
+
+    **Categories (6):** bracket_black, bracket_brown, bracket_white, connector, metal_plate, tubes
+
+    ```python
+    from anomalib.data import MPDD
+
+    datamodule = MPDD(
+        root="./datasets/MPDD",
+        category="bracket_black",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Jezek et al., ICUMT 2021. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="RealIAD — Real Industrial Anomaly Detection Dataset">
+    A large-scale industrial anomaly detection dataset with 30 categories, each captured from 5 camera viewpoints. Images are available at 256×256, 512×512, and 1024×1024 resolutions.
+
+    <Note>
+    RealIAD requires manual download from Hugging Face. Place the extracted files at the path you pass as `root`.
+    </Note>
+
+    ```python
+    from anomalib.data import RealIAD
+
+    datamodule = RealIAD(
+        root="./datasets/Real-IAD",
+        category="audiojack",
+        resolution="1024",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    The `json_path` parameter selects which metadata split to use:
+    - `"realiad_jsons/realiad_jsons/{category}.json"` — multi-view (default)
+    - `"realiad_jsons/realiad_jsons_sv/{category}.json"` — single-view
+
+    **License:** CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="BMAD — Benchmarks for Medical Anomaly Detection">
+    A standardised benchmark built from six public medical-imaging datasets across five domains: brain MRI, liver CT, retinal OCT, chest X-ray, and histopathology. Downloads automatically.
+
+    **Datasets:** Brain, Liver, Retina_OCT2017, Retina_RESC, Chest, Histopathology
+
+    ```python
+    from anomalib.data import BMAD
+
+    datamodule = BMAD(
+        root="./datasets/BMAD",
+        dataset="Brain",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Bao et al., arXiv 2023. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="VAD — Valeo Anomaly Detection Dataset">
+    A supervised anomaly detection dataset of industrial objects captured in automotive manufacturing environments. Downloads automatically.
+
+    ```python
+    from anomalib.data import VAD
+
+    datamodule = VAD(
+        root="./datasets/VAD",
+        category="vad",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Baitieva et al., CVPR 2024. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="Kaputt — Visual Defect Detection in Logistics">
+    A large-scale logistics dataset with more than 230,000 images, over 29,000 defective instances, and 48,000 distinct objects.
+
+    <Note>
+    Kaputt requires manual download from [kaputt-dataset.com](https://www.kaputt-dataset.com/). Fill in the access form on the website and place the extracted files at `root`.
+    </Note>
+
+    ```python
+    from anomalib.data import Kaputt
+
+    datamodule = Kaputt(
+        root="./datasets/kaputt",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** Höfer et al., ICCV 2025. License: CC BY-NC-ND 4.0.
+  </Accordion>
+
+  <Accordion title="Datumaro — Intel Geti™ export format">
+    Loads datasets exported from [Intel Geti™](https://geti.intel.com/) in Datumaro format. Useful when you have labelled data from Geti and want to benchmark anomaly models against it.
+
+    ```python
+    from anomalib.data import Datumaro
+
+    datamodule = Datumaro(
+        root="./datasets/my_geti_export",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+  </Accordion>
+
+  <Accordion title="Tabular — CSV / tabular image lists">
+    Load a dataset defined by a CSV file with columns for image paths and labels. Useful when your data does not follow a fixed directory structure.
+
+    ```python
+    from anomalib.data import Tabular
+
+    datamodule = Tabular(
+        root="./datasets/my_tabular",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+  </Accordion>
+
+</AccordionGroup>
+
+## Video datasets
+
+<AccordionGroup>
+
+  <Accordion title="Avenue — CUHK Avenue Dataset">
+    A surveillance video dataset for abnormal event detection recorded in a campus avenue. The datamodule downloads the videos and ground-truth masks automatically and converts `.mat` mask files to `.png`.
+
+    ```python
+    from anomalib.data import Avenue
+
+    datamodule = Avenue(
+        root="./datasets/avenue",
+        gt_dir="./datasets/avenue/ground_truth_demo",
+        clip_length_in_frames=2,
+        frames_between_clips=1,
+        target_frame="last",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+
+    batch = next(iter(datamodule.train_dataloader()))
+    print(batch.image.shape)  # torch.Size([32, 2, 3, 256, 256])
+    ```
+
+    | Parameter | Description |
+    |---|---|
+    | `clip_length_in_frames` | Number of frames per clip |
+    | `frames_between_clips` | Stride between consecutive clips |
+    | `target_frame` | Frame in the clip used for ground truth (`"first"`, `"last"`, `"mid"`) |
+
+    **Reference:** Lu et al., ICCV 2013.
+  </Accordion>
+
+  <Accordion title="ShanghaiTech — ShanghaiTech Campus Dataset">
+    A multi-scene campus surveillance dataset. The datamodule downloads and converts videos automatically.
+
+    ```python
+    from anomalib.data import ShanghaiTech
+
+    datamodule = ShanghaiTech(
+        root="./datasets/shanghaitech",
+        scene=1,
+        clip_length_in_frames=2,
+        frames_between_clips=1,
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    The `scene` parameter selects the campus scene index (1–13).
+
+    **Reference:** Liu et al., CVPR 2018. License: BSD 2-Clause.
+  </Accordion>
+
+  <Accordion title="UCSDped — UCSD Pedestrian Dataset">
+    Surveillance footage of pedestrian walkways where anomalies are non-pedestrian entities such as vehicles or bicycles. Downloads automatically.
+
+    ```python
+    from anomalib.data import UCSDped
+
+    datamodule = UCSDped(
+        root="./datasets/ucsd",
+        category="UCSDped2",
+        clip_length_in_frames=2,
+        frames_between_clips=10,
+        target_frame="last",
+        train_batch_size=8,
+        eval_batch_size=8,
+    )
+    datamodule.setup()
+    ```
+
+    The `category` parameter selects `"UCSDped1"` or `"UCSDped2"`.
+  </Accordion>
+
+</AccordionGroup>
+
+## Depth datasets
+
+<AccordionGroup>
+
+  <Accordion title="MVTec3D — MVTec 3D Anomaly Detection Dataset">
+    Paired RGB and depth images of industrial objects. The depth channel captures 3D surface structure useful for detecting subtle volumetric defects. Downloads automatically.
+
+    **Categories (10):** bagel, cable_gland, carrot, cookie, dowel, foam, peach, potato, rope, tire
+
+    ```python
+    from anomalib.data import MVTec3D
+
+    datamodule = MVTec3D(
+        root="./datasets/MVTec3D",
+        category="bagel",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+
+    batch = next(iter(datamodule.train_dataloader()))
+    print(batch.image.shape)      # torch.Size([32, 3, 256, 256])
+    print(batch.depth_map.shape)  # torch.Size([32, 1, 256, 256])
+    ```
+
+    **Reference:** Bergmann et al., VISAPP 2022. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+  <Accordion title="Folder3D — Custom folder structure (RGB-D)">
+    Load your own RGB-D dataset from a folder structure. This is the depth equivalent of the `Folder` datamodule.
+
+    ```python
+    from anomalib.data import Folder3D
+
+    datamodule = Folder3D(
+        name="my_rgbd_dataset",
+        root="./datasets/my_rgbd",
+        normal_dir="normal",
+        abnormal_dir="abnormal",
+        normal_depth_dir="normal_depth",
+        abnormal_depth_dir="abnormal_depth",
+        mask_dir="masks",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    | Parameter | Description |
+    |---|---|
+    | `normal_dir` | Directory with normal RGB images |
+    | `abnormal_dir` | Directory with abnormal RGB images |
+    | `normal_depth_dir` | Directory with normal depth images |
+    | `abnormal_depth_dir` | Directory with abnormal depth images |
+    | `mask_dir` | Directory with binary anomaly masks |
+    | `normal_test_dir` | Normal images used for testing only (optional) |
+    | `normal_test_depth_dir` | Depth images for normal test samples (optional) |
+  </Accordion>
+
+  <Accordion title="ADAM3D — 3D Adaptive Manufacturing Dataset">
+    Paired RGB and depth images of mechanical parts. Downloads automatically.
+
+    ```python
+    from anomalib.data import ADAM3D
+
+    datamodule = ADAM3D(
+        root="./datasets/ADAM3D",
+        category="1m1",
+        train_batch_size=32,
+        eval_batch_size=32,
+    )
+    datamodule.setup()
+    ```
+
+    **Reference:** arXiv 2025. License: CC BY-NC-SA 4.0.
+  </Accordion>
+
+</AccordionGroup>
+
+## Download summary
+
+| Dataset | Auto-download | Modality |
+|---|---|---|
+| MVTecAD | Yes | Image |
+| MVTecAD2 | Yes | Image |
+| MVTecLOCO | No — see dataset website | Image |
+| BTech | Yes | Image |
+| VisA | Yes | Image |
+| Kolektor | Yes | Image |
+| MPDD | No — manual OneDrive download | Image |
+| RealIAD | No — manual Hugging Face download | Image |
+| BMAD | Yes | Image |
+| VAD | Yes | Image |
+| Kaputt | No — requires access request | Image |
+| Datumaro | No — user-provided | Image |
+| Tabular | No — user-provided | Image |
+| Avenue | Yes | Video |
+| ShanghaiTech | Yes | Video |
+| UCSDped | Yes | Video |
+| MVTec3D | Yes | Depth |
+| Folder3D | No — user-provided | Depth |
+| ADAM3D | Yes | Depth |

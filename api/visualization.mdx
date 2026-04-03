@@ -1,0 +1,202 @@
+---
+title: "Visualization"
+description: "Tools for visualizing anomaly detection predictions, including heatmaps, segmentation masks, and annotation overlays."
+keywords: ["visualization", "ImageVisualizer", "anomaly map", "heatmap", "segmentation mask", "overlay"]
+---
+
+Anomalib's visualization module produces side-by-side image panels showing inputs, ground truth, predictions, and overlays. The main entry point is `ImageVisualizer`, which is also a PyTorch Lightning `Callback` — it saves visualizations automatically during test and predict phases.
+
+---
+
+## ImageVisualizer
+
+`ImageVisualizer` generates composited image panels from model predictions. It renders individual fields (raw image, GT mask, anomaly map, predicted mask) side by side, and overlays anomaly maps and masks on top of the original image.
+
+```python
+from anomalib.visualization import ImageVisualizer
+
+visualizer = ImageVisualizer(
+    fields=["image", "gt_mask"],
+    overlay_fields=[("image", ["anomaly_map"]), ("image", ["pred_mask"])],
+    field_size=(256, 256),
+    output_dir="results/visualizations",
+)
+```
+
+Call `visualize()` directly to get a PIL `Image`:
+
+```python
+from anomalib.data import ImageItem
+import torch
+
+item = ImageItem(
+    image=torch.rand(3, 256, 256),
+    anomaly_map=torch.rand(256, 256),
+    pred_mask=torch.rand(256, 256) > 0.5,
+)
+
+result = visualizer.visualize(item)
+result.save("output.png")
+```
+
+`ImageVisualizer` is also callable:
+
+```python
+result = visualizer(item)
+```
+
+### Callback behavior
+
+When added to the engine as a callback, `ImageVisualizer` automatically saves a visualization for each test or prediction batch:
+
+```python
+from anomalib.engine import Engine
+from anomalib.visualization import ImageVisualizer
+
+visualizer = ImageVisualizer(output_dir="results/images")
+engine = Engine(callbacks=[visualizer])
+```
+
+Images are saved under `output_dir`, organized by dataset name and category when available.
+
+---
+
+### Parameters
+
+<ParamField path="fields" type="list[string] | None" default='["image", "gt_mask"]'>
+  Fields rendered as individual side-by-side panels. Common values: `"image"`, `"gt_mask"`, `"anomaly_map"`, `"pred_mask"`.
+</ParamField>
+
+<ParamField path="overlay_fields" type="list[tuple[string, list[string]]] | None" default='[("image", ["anomaly_map"]), ("image", ["pred_mask"])]'>
+  Tuples of `(base_field, [overlay_fields])` specifying which fields to composite on top of a base image.
+</ParamField>
+
+<ParamField path="field_size" type="tuple[int, int]" default="(256, 256)">
+  Width and height of each rendered panel in pixels.
+</ParamField>
+
+<ParamField path="fields_config" type="dict[string, dict] | None" default="None">
+  Per-field rendering options merged with defaults. Supports keys like `"colormap"` and `"normalize"` for the `anomaly_map` field.
+</ParamField>
+
+<ParamField path="overlay_fields_config" type="dict[string, dict] | None" default="None">
+  Per-overlay rendering options merged with defaults. Supports `"alpha"`, `"color"`, and `"mode"` (`"fill"` or `"contour"`) for each overlay field.
+</ParamField>
+
+<ParamField path="text_config" type="dict | None" default="None">
+  Configuration for text labels drawn on each panel. Supports `"font"`, `"size"`, `"color"`, and `"background"`.
+</ParamField>
+
+<ParamField path="output_dir" type="string | Path | None" default="None">
+  Directory where visualizations are saved when used as a callback. Defaults to `<trainer.default_root_dir>/images`.
+</ParamField>
+
+---
+
+### Customizing the anomaly map overlay
+
+```python
+visualizer = ImageVisualizer(
+    fields_config={
+        "anomaly_map": {"colormap": True, "normalize": True},
+    },
+    overlay_fields_config={
+        "anomaly_map": {"alpha": 0.5, "mode": "fill"},
+        "pred_mask": {"alpha": 0.7, "color": (255, 0, 0), "mode": "contour"},
+    },
+    text_config={
+        "font": "arial.ttf",
+        "size": 18,
+        "color": "white",
+        "background": (0, 0, 0, 180),
+    },
+)
+```
+
+---
+
+## Standalone visualization functions
+
+You can use the lower-level functions directly without the `ImageVisualizer` class.
+
+### visualize_anomaly_map
+
+`visualize_anomaly_map` renders a raw anomaly score map as a colormapped image.
+
+```python
+from anomalib.visualization import visualize_anomaly_map
+import torch
+
+anomaly_map = torch.rand(256, 256)
+image = visualize_anomaly_map(anomaly_map)
+image.save("heatmap.png")
+```
+
+### visualize_mask
+
+`visualize_mask` renders a binary segmentation mask.
+
+```python
+from anomalib.visualization import visualize_mask
+import torch
+
+mask = torch.rand(256, 256) > 0.5
+image = visualize_mask(mask)
+image.save("mask.png")
+```
+
+### visualize_image_item
+
+`visualize_image_item` is the full compositing function used internally by `ImageVisualizer`. It accepts any `ImageItem` or `NumpyImageItem` and returns a PIL `Image`.
+
+```python
+from anomalib.visualization import visualize_image_item
+from anomalib.data import ImageItem
+import torch
+
+item = ImageItem(
+    image=torch.rand(3, 256, 256),
+    anomaly_map=torch.rand(256, 256),
+    pred_mask=(torch.rand(256, 256) > 0.5),
+)
+
+result = visualize_image_item(
+    item,
+    fields=["image", "gt_mask"],
+    overlay_fields=[("image", ["anomaly_map"])],
+    field_size=(256, 256),
+)
+
+if result is not None:
+    result.save("item_visualization.png")
+```
+
+---
+
+## Custom visualizer
+
+Implement a custom visualizer by subclassing `Visualizer` and overriding the `visualize` method:
+
+```python
+from anomalib.visualization import Visualizer
+from PIL import Image
+
+class CustomVisualizer(Visualizer):
+    def visualize(self, **kwargs) -> Image.Image:
+        # Your custom rendering logic
+        ...
+```
+
+`Visualizer` inherits from `lightning.pytorch.Callback`, so you can hook into `on_test_batch_end` and `on_predict_batch_end` as needed.
+
+---
+
+## Batch handling
+
+`ImageVisualizer.visualize()` handles single items and batches intelligently:
+
+| Input type | Returns |
+|---|---|
+| `ImageItem` or `NumpyImageItem` | Single `PIL.Image` or `None` |
+| `ImageBatch` with 1 item | Single `PIL.Image` or `None` |
+| `ImageBatch` with N > 1 items | `list[PIL.Image \| None]` |

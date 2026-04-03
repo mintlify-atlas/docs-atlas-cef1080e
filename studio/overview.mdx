@@ -1,0 +1,47 @@
+---
+title: "Anomalib Studio"
+description: "A low/no-code web application for training and deploying anomaly detection models without writing code."
+keywords: ["anomalib studio", "web application", "no-code", "anomaly detection", "camera", "MQTT", "ROS"]
+---
+
+Anomalib Studio is a low/no-code web application that lets you train and deploy anomaly detection models through a visual interface. It is designed for operational environments where you need to connect cameras, train a model, and route results to industrial systems — without writing code.
+
+The source code lives in the [`application/`](https://github.com/open-edge-platform/anomalib/tree/main/application) directory of the Anomalib repository.
+
+## Key capabilities
+
+- **Flexible input sources** — Connect USB cameras, IP cameras, or use a folder of images as the training and inference input.
+- **Visual training workflow** — Configure and run model training through the web UI without touching the command line.
+- **Industrial output** — Send inference results directly to downstream systems via ROS messages, MQTT, and other protocols.
+- **Model management** — Track trained models and switch between them from the interface.
+
+## Architecture
+
+Anomalib Studio is built as a two-tier web application:
+
+- **Frontend** — A React application served on port 3000 in development or bundled into the backend for production.
+- **Backend** — A Python [FastAPI](https://fastapi.tiangolo.com/) server that manages training, inference, camera streams, and database state. It uses [OpenVINO](https://docs.openvino.ai/) for optimized model inference.
+
+## Distribution options
+
+Anomalib Studio ships in two forms depending on your deployment needs.
+
+<CardGroup cols={2}>
+  <Card title="Docker container" icon="docker" href="/studio/getting-started#docker">
+    Run the full stack as a single container using Docker Compose. Supports CPU, Intel XPU, and NVIDIA CUDA targets. Best for production and self-contained deployments.
+  </Card>
+  <Card title="Development build" icon="code" icon="terminal" href="/studio/getting-started#development-build">
+    Run the frontend and backend servers separately. Best for development, customization, and contributing to the project.
+  </Card>
+</CardGroup>
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Getting started" icon="rocket" href="/studio/getting-started">
+    Set up and run Anomalib Studio using Docker or the development build.
+  </Card>
+  <Card title="Anomalib repository" icon="github" href="https://github.com/open-edge-platform/anomalib/tree/main/application">
+    Browse the full source code for the Studio frontend, backend, and Docker configuration.
+  </Card>
+</CardGroup>

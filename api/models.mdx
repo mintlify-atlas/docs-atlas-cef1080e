@@ -1,0 +1,335 @@
+---
+title: "Models API"
+description: "All anomaly detection model classes, the AnomalibModule base class, and factory utilities."
+keywords: ["models", "AnomalibModule", "get_model", "list_models", "padim", "patchcore", "anomaly detection"]
+---
+
+Anomalib provides a unified model interface through the `AnomalibModule` base class, which all detection models inherit from. Factory functions let you instantiate any model from a string name, dictionary, or OmegaConf config.
+
+```python
+from anomalib.models import Padim, get_model, list_models
+
+# By class
+model = Padim()
+
+# By name
+model = get_model("padim")
+
+# List all available models
+print(sorted(list_models()))
+```
+
+## Enums
+
+### `LearningType`
+
+Defines how a model learns from training data.
+
+```python
+from anomalib import LearningType
+```
+
+| Value | String | Description |
+|---|---|---|
+| `LearningType.ONE_CLASS` | `"one_class"` | Trains only on normal samples. Most models use this paradigm. |
+| `LearningType.ZERO_SHOT` | `"zero_shot"` | No task-specific training; uses pretrained representations directly. |
+| `LearningType.FEW_SHOT` | `"few_shot"` | Trains on a small number of samples. |
+
+<Note>
+  The engine automatically detects the learning type and adjusts the training loop accordingly. Zero-shot and few-shot models skip gradient-based training and run only validation to collect normalization statistics and thresholds.
+</Note>
+
+### `TaskType`
+
+Defines the model's prediction output format.
+
+```python
+from anomalib import TaskType
+```
+
+| Value | String | Description |
+|---|---|---|
+| `TaskType.CLASSIFICATION` | `"classification"` | Predicts an anomaly score per image. |
+| `TaskType.SEGMENTATION` | `"segmentation"` | Predicts pixel-wise anomaly scores and a binary mask. |
+
+---
+
+## `AnomalibModule`
+
+Base class for all anomaly detection models in anomalib. Extends `lightning.pytorch.LightningModule` and provides the common training, validation, testing, and inference pipeline.
+
+```python
+from anomalib.models.components import AnomalibModule
+```
+
+### Constructor
+
+<ParamField path="pre_processor" type="PreProcessor | bool" default="True">
+  Pre-processing component applied to inputs before the model. Pass `True` to use the default (resize to 256×256 and normalize with ImageNet statistics). Pass `False` to disable. Pass a `PreProcessor` instance to use custom transforms.
+</ParamField>
+
+<ParamField path="post_processor" type="PostProcessor | bool" default="True">
+  Post-processing component applied to model outputs. Pass `True` to use the default. Pass `False` to disable. Pass a `PostProcessor` instance for custom behavior.
+</ParamField>
+
+<ParamField path="evaluator" type="Evaluator | bool" default="True">
+  Evaluation component that computes metrics during test. The default evaluator computes image-level and pixel-level AUROC and F1Score.
+</ParamField>
+
+<ParamField path="visualizer" type="Visualizer | bool" default="True">
+  Visualization component. The default produces image overlays of anomaly maps.
+</ParamField>
+
+### Abstract properties
+
+Subclasses must implement:
+
+<ResponseField name="trainer_arguments" type="dict[str, Any]">
+  Model-specific overrides for PyTorch Lightning `Trainer` arguments (e.g. `max_epochs`, `val_check_interval`). The engine applies these automatically.
+</ResponseField>
+
+<ResponseField name="learning_type" type="LearningType">
+  The learning paradigm used by this model (`ONE_CLASS`, `ZERO_SHOT`, or `FEW_SHOT`).
+</ResponseField>
+
+### Key methods
+
+<AccordionGroup>
+  <Accordion title="forward(batch)">
+    Passes input through the full pipeline: pre-processor → model → post-processor.
+
+    ```python
+    import torch
+    output = model(torch.randn(1, 3, 256, 256))
+    # Returns InferenceBatch
+    ```
+  </Accordion>
+  <Accordion title="from_config(config_path, **kwargs)">
+    Classmethod. Instantiates a model from a YAML configuration file.
+
+    ```python
+    model = AnomalibModule.from_config(
+        "examples/configs/model/patchcore.yaml",
+    )
+
+    # Override a config value
+    model = AnomalibModule.from_config(
+        "examples/configs/model/patchcore.yaml",
+        model__backbone="resnet18",
+    )
+    ```
+  </Accordion>
+  <Accordion title="input_size">
+    Property. Returns the effective `(height, width)` input size after pre-processing transforms, or `None` if it cannot be determined.
+
+    ```python
+    model = Padim()
+    print(model.input_size)  # (256, 256)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## `get_model`
+
+Instantiate any anomaly detection model from a name, dictionary, or OmegaConf config.
+
+```python
+from anomalib.models import get_model
+```
+
+<ParamField path="model" type="DictConfig | str | dict | Namespace" required>
+  Model specification. Accepts:
+  - A string name: `"padim"`, `"efficient_ad"` (case-insensitive, snake_case or PascalCase)
+  - A `dict` with `class_path` and optional `init_args`
+  - An OmegaConf `DictConfig` with the same structure
+  - A `jsonargparse.Namespace` object
+</ParamField>
+
+<ParamField path="*args" type="Any">
+  Positional arguments forwarded to the model constructor.
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Keyword arguments forwarded to the model constructor, merging with any `init_args` in the config.
+</ParamField>
+
+**Returns:** `AnomalibModule` — an instantiated model.
+
+**Raises:**
+- `TypeError` — if `model` is an unsupported type.
+- `UnknownModelError` — if the model class cannot be found.
+
+<Tabs>
+  <Tab title="String name">
+    ```python
+    from anomalib.models import get_model
+
+    model = get_model("padim")
+    model = get_model("efficient_ad")
+    model = get_model("patchcore", num_neighbors=10)
+    ```
+  </Tab>
+  <Tab title="Dictionary">
+    ```python
+    from anomalib.models import get_model
+
+    # Simple class path
+    model = get_model({"class_path": "Padim"})
+
+    # With init_args
+    model = get_model({
+        "class_path": "Padim",
+        "init_args": {"backbone": "resnet18"},
+    })
+
+    # Fully qualified path
+    model = get_model({
+        "class_path": "anomalib.models.Padim",
+        "init_args": {"backbone": "wide_resnet50_2"},
+    })
+    ```
+  </Tab>
+  <Tab title="OmegaConf">
+    ```python
+    from anomalib.models import get_model
+    from omegaconf import OmegaConf
+
+    config = OmegaConf.create({
+        "class_path": "Patchcore",
+        "init_args": {"num_neighbors": 9},
+    })
+    model = get_model(config)
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## `list_models`
+
+Return all available model names in the specified format.
+
+```python
+from anomalib.models import list_models
+```
+
+<ParamField path="case" type="string" default='"snake"'>
+  Format for model names. Options:
+  - `"snake"` — snake_case (e.g. `"efficient_ad"`)
+  - `"pascal"` — PascalCase class names (e.g. `"EfficientAd"`)
+  - `"title"` — Title case (e.g. `"Efficient Ad"`)
+</ParamField>
+
+**Returns:** `set[str]` — set of model names.
+
+**Raises:** `ValueError` — if `case` is not one of the supported options.
+
+```python
+from anomalib.models import list_models
+
+# snake_case (default)
+print(sorted(list_models()))
+# ['ai_vad', 'cfa', 'cflow', 'csflow', 'dfkde', 'dfm', 'draem',
+#  'efficient_ad', 'fastflow', 'fre', 'fuvas', 'ganomaly', 'padim',
+#  'patchcore', 'reverse_distillation', 'stfpm', 'uflow', ...]
+
+# PascalCase
+print(sorted(list_models(case="pascal")))
+# ['AiVad', 'Cfa', 'Cflow', 'Csflow', 'Dfkde', 'Dfm', 'Draem',
+#  'EfficientAd', 'Fastflow', 'Fre', 'Fuvas', 'Ganomaly', 'Padim', ...]
+```
+
+---
+
+## Available models
+
+### Image models
+
+| Class | Import name | Learning type |
+|---|---|---|
+| `AnomalyDINO` | `anomalib.models.AnomalyDINO` | Zero-shot |
+| `Cfa` | `anomalib.models.Cfa` | One-class |
+| `Cflow` | `anomalib.models.Cflow` | One-class |
+| `Csflow` | `anomalib.models.Csflow` | One-class |
+| `Dfkde` | `anomalib.models.Dfkde` | One-class |
+| `Dfm` | `anomalib.models.Dfm` | One-class |
+| `Dinomaly` | `anomalib.models.Dinomaly` | One-class |
+| `Draem` | `anomalib.models.Draem` | One-class |
+| `Dsr` | `anomalib.models.Dsr` | One-class |
+| `EfficientAd` | `anomalib.models.EfficientAd` | One-class |
+| `Fastflow` | `anomalib.models.Fastflow` | One-class |
+| `Fre` | `anomalib.models.Fre` | One-class |
+| `Ganomaly` | `anomalib.models.Ganomaly` | One-class |
+| `Padim` | `anomalib.models.Padim` | One-class |
+| `Patchcore` | `anomalib.models.Patchcore` | One-class |
+| `ReverseDistillation` | `anomalib.models.ReverseDistillation` | One-class |
+| `Stfpm` | `anomalib.models.Stfpm` | One-class |
+| `Supersimplenet` | `anomalib.models.Supersimplenet` | One-class |
+| `Uflow` | `anomalib.models.Uflow` | One-class |
+| `UniNet` | `anomalib.models.UniNet` | One-class |
+| `VlmAd` | `anomalib.models.VlmAd` | Zero-shot |
+| `WinClip` | `anomalib.models.WinClip` | Zero-shot / Few-shot |
+
+### Video models
+
+| Class | Import name | Description |
+|---|---|---|
+| `AiVad` | `anomalib.models.AiVad` | Attribute-based representations for video anomaly detection |
+| `Fuvas` | `anomalib.models.Fuvas` | Feature-based video anomaly segmentation |
+
+---
+
+## Usage examples
+
+<CodeGroup>
+
+```python train and test
+from anomalib.engine import Engine
+from anomalib.models import Patchcore
+from anomalib.data import MVTecAD
+
+engine = Engine()
+model = Patchcore()
+datamodule = MVTecAD(category="bottle")
+
+engine.fit(model, datamodule=datamodule)
+results = engine.test(model, datamodule=datamodule)
+```
+
+```python zero-shot model
+from anomalib.engine import Engine
+from anomalib.models import WinClip
+from anomalib.data import MVTecAD
+
+engine = Engine()
+model = WinClip()
+datamodule = MVTecAD(category="leather")
+
+# Zero-shot: no fit() needed
+results = engine.test(model, datamodule=datamodule)
+```
+
+```python export after training
+from anomalib.engine import Engine
+from anomalib.models import Padim
+from anomalib.data import MVTecAD
+from anomalib.deploy import ExportType
+
+engine = Engine()
+model = Padim()
+datamodule = MVTecAD()
+
+engine.fit(model, datamodule=datamodule)
+
+path = engine.export(
+    model=model,
+    export_type=ExportType.OPENVINO,
+    input_size=(256, 256),
+    ckpt_path=engine.best_model_path,
+)
+print(f"Exported to: {path}")
+```
+
+</CodeGroup>

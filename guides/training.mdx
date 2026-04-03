@@ -1,0 +1,255 @@
+---
+title: "Training"
+description: "Train anomaly detection models using the Python API or CLI, with support for experiment tracking and Intel GPU acceleration."
+keywords: ["training", "engine", "fit", "patchcore", "padim", "mvtec", "xpu", "wandb", "tensorboard"]
+---
+
+Anomalib provides two ways to train a model: the Python API for programmatic control and the CLI for quick experiments. Both approaches use the same underlying `Engine`, which wraps PyTorch Lightning's `Trainer` with anomaly-detection-specific functionality.
+
+## Basic training
+
+<Tabs>
+  <Tab title="Python API">
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    datamodule = MVTecAD()
+    model = Patchcore()
+    engine = Engine()
+
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+
+    `engine.fit()` trains the model and saves a checkpoint to `results/<model>/<dataset>/<category>/weights/lightning/model.ckpt`.
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    # Train with default settings
+    anomalib train --model Patchcore --data anomalib.data.MVTecAD
+
+    # Override a specific category
+    anomalib train --model Patchcore --data anomalib.data.MVTecAD --data.category transistor
+
+    # Override trainer arguments
+    anomalib train --model Patchcore --data anomalib.data.MVTecAD --trainer.max_epochs 10
+    ```
+  </Tab>
+</Tabs>
+
+## Training workflow
+
+<Steps>
+  <Step title="Install anomalib">
+    ```bash
+    pip install anomalib
+    ```
+
+    For hardware-specific backends, install the matching extra:
+
+    ```bash
+    pip install "anomalib[cu126]"   # CUDA 12.6
+    pip install "anomalib[rocm]"    # AMD ROCm
+    pip install "anomalib[xpu]"     # Intel XPU
+    ```
+  </Step>
+
+  <Step title="Choose a model and dataset">
+    Anomalib ships with many ready-to-use models. Patchcore is a strong default choice that achieves high accuracy without a training loop.
+
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+
+    datamodule = MVTecAD(category="bottle", train_batch_size=32)
+    model = Patchcore()
+    ```
+  </Step>
+
+  <Step title="Configure the engine">
+    The `Engine` accepts all PyTorch Lightning `Trainer` keyword arguments:
+
+    ```python
+    from anomalib.engine import Engine
+
+    engine = Engine(
+        default_root_dir="results",
+        max_epochs=1,          # most feature-extraction models only need 1 epoch
+    )
+    ```
+  </Step>
+
+  <Step title="Fit the model">
+    ```python
+    engine.fit(model=model, datamodule=datamodule)
+    ```
+
+    After training completes, run evaluation on the test set:
+
+    ```python
+    engine.test(model=model, datamodule=datamodule)
+    ```
+  </Step>
+</Steps>
+
+## Training from a config file
+
+For reproducible experiments, define everything in a YAML config file and load it with `Engine.from_config()`:
+
+```python
+from anomalib.engine import Engine
+
+engine, model, datamodule = Engine.from_config(config_path="config.yaml")
+engine.fit(model=model, datamodule=datamodule)
+```
+
+Or use the CLI directly:
+
+```bash
+anomalib train --config path/to/config.yaml
+```
+
+A minimal config looks like this:
+
+```yaml
+model:
+  class_path: anomalib.models.Patchcore
+  init_args:
+    backbone: wide_resnet50_2
+    layers:
+      - layer2
+      - layer3
+
+data:
+  class_path: anomalib.data.MVTecAD
+  init_args:
+    category: bottle
+    train_batch_size: 32
+    eval_batch_size: 32
+
+trainer:
+  max_epochs: 1
+  accelerator: auto
+```
+
+You can override individual values without editing the file:
+
+```python
+engine, model, datamodule = Engine.from_config(
+    config_path="config.yaml",
+    **{"data.category": "capsule"},
+)
+```
+
+## Training on Intel GPUs (XPU)
+
+<Note>
+  Only single-GPU training is currently supported on Intel GPUs. This has been tested on Intel Arc 750 and Arc 770.
+</Note>
+
+First, verify your PyTorch installation has XPU support:
+
+```bash
+python -c "import torch; print(torch.xpu.is_available())"
+```
+
+<Tabs>
+  <Tab title="Python API">
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.engine import Engine, SingleXPUStrategy, XPUAccelerator
+    from anomalib.models import Stfpm
+
+    engine = Engine(
+        strategy=SingleXPUStrategy(),
+        accelerator=XPUAccelerator(),
+    )
+    engine.train(Stfpm(), datamodule=MVTecAD())
+    ```
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    anomalib train --model Padim --data MVTecAD \
+      --trainer.accelerator xpu \
+      --trainer.strategy xpu_single
+    ```
+  </Tab>
+</Tabs>
+
+## Experiment tracking
+
+Anomalib uses [PyTorch Lightning loggers](https://pytorch-lightning.readthedocs.io/en/stable/extensions/logging.html). Pass a logger instance to the `Engine` to track hyperparameters, metrics, model graphs, and predictions.
+
+<Tabs>
+  <Tab title="Weights & Biases">
+    Install the logger extra first:
+
+    ```bash
+    pip install "anomalib[loggers]"
+    ```
+
+    ```python
+    from lightning.pytorch.loggers import WandbLogger
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    wandb_logger = WandbLogger(project="anomalib-experiments", name="patchcore-bottle")
+
+    engine = Engine(logger=wandb_logger)
+    engine.fit(model=Patchcore(), datamodule=MVTecAD(category="bottle"))
+    ```
+  </Tab>
+  <Tab title="TensorBoard">
+    ```python
+    from lightning.pytorch.loggers import TensorBoardLogger
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    tb_logger = TensorBoardLogger(save_dir="tb_logs", name="patchcore")
+
+    engine = Engine(logger=tb_logger)
+    engine.fit(model=Patchcore(), datamodule=MVTecAD(category="bottle"))
+    ```
+
+    Launch the TensorBoard UI:
+
+    ```bash
+    tensorboard --logdir tb_logs
+    ```
+  </Tab>
+  <Tab title="Comet.ml">
+    ```python
+    from lightning.pytorch.loggers import CometLogger
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    comet_logger = CometLogger(
+        api_key="your-api-key",
+        project_name="anomalib-experiments",
+    )
+
+    engine = Engine(logger=comet_logger)
+    engine.fit(model=Patchcore(), datamodule=MVTecAD(category="bottle"))
+    ```
+  </Tab>
+</Tabs>
+
+## Resuming from a checkpoint
+
+Pass `ckpt_path` to resume training from a saved checkpoint:
+
+```python
+engine.fit(
+    model=model,
+    datamodule=datamodule,
+    ckpt_path="results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt",
+)
+```
+
+<Tip>
+  After `engine.fit()` completes, the path to the best checkpoint is available at `engine.best_model_path`.
+</Tip>

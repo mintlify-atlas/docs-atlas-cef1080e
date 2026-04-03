@@ -1,0 +1,187 @@
+---
+title: "Inference"
+description: "Run inference on trained anomaly detection models using the Python API, CLI, OpenVINO, or a Gradio demo."
+keywords: ["inference", "predict", "openvino", "gradio", "checkpoint", "torch inferencer"]
+---
+
+After training, you can run inference using the same `Engine` you used for training, or with standalone inferencers that load exported model files directly.
+
+## Running predictions with the engine
+
+<Tabs>
+  <Tab title="Python API">
+    Load a checkpoint and predict on a datamodule:
+
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    datamodule = MVTecAD(category="bottle")
+    model = Patchcore()
+    engine = Engine()
+
+    predictions = engine.predict(
+        model=model,
+        datamodule=datamodule,
+        ckpt_path="results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt",
+    )
+    ```
+
+    You can also predict on a folder of images or a single image path:
+
+    ```python
+    predictions = engine.predict(
+        model=model,
+        ckpt_path="results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt",
+        data_path="datasets/MVTecAD/bottle/test/broken_large",
+    )
+    ```
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    # Predict on a datamodule
+    anomalib predict \
+      --model anomalib.models.Patchcore \
+      --data anomalib.data.MVTecAD \
+      --ckpt_path results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt
+
+    # Predict on a folder of images
+    anomalib predict \
+      --model Patchcore \
+      --data datasets/MVTecAD/bottle/test/broken_large \
+      --ckpt_path results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt
+
+    # Return predictions in the command output
+    anomalib predict \
+      --model anomalib.models.Patchcore \
+      --data anomalib.data.MVTecAD \
+      --ckpt_path results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt \
+      --return_predictions
+    ```
+  </Tab>
+</Tabs>
+
+## Working with prediction results
+
+`engine.predict()` returns a list of batches. Each item in the batch is an `ImageItem` that contains the anomaly map, predicted score, and predicted mask:
+
+```python
+predictions = engine.predict(
+    model=model,
+    datamodule=datamodule,
+    ckpt_path="path/to/model.ckpt",
+)
+
+for batch in predictions:
+    for item in batch.items:
+        print(item.pred_score)    # float: image-level anomaly score
+        print(item.pred_label)    # int: 0 = normal, 1 = anomalous
+        print(item.anomaly_map)   # np.ndarray: pixel-level heatmap
+        print(item.pred_mask)     # np.ndarray: binary segmentation mask
+```
+
+## Using the Torch inferencer
+
+The `TorchInferencer` loads a `.pt` or `.ckpt` file and runs inference without requiring a full Lightning setup:
+
+```python
+from anomalib.deploy import TorchInferencer
+
+inferencer = TorchInferencer(path="results/Patchcore/MVTecAD/bottle/weights/torch/model.pt")
+
+# Predict from an image path, PIL Image, or numpy array
+prediction = inferencer.predict(image="path/to/image.jpg")
+
+print(prediction.pred_score)   # image-level anomaly score
+print(prediction.anomaly_map)  # pixel-level heatmap
+```
+
+You can also use the standalone inference script:
+
+```bash
+python tools/inference/torch_inference.py \
+  --weights results/Patchcore/MVTecAD/bottle/weights/torch/model.pt \
+  --input path/to/image.jpg \
+  --output path/to/output/ \
+  --show
+```
+
+## OpenVINO inference
+
+<Note>
+  OpenVINO inference requires the `openvino` extra. Install it with `pip install "anomalib[openvino]"`.
+</Note>
+
+After exporting to OpenVINO format (see [Deployment](/guides/deployment)), use `OpenVINOInferencer`:
+
+```python
+from anomalib.deploy import OpenVINOInferencer
+
+inferencer = OpenVINOInferencer(
+    path="results/Patchcore/MVTecAD/bottle/weights/openvino/model.xml",
+    device="CPU",   # Options: "AUTO", "CPU", "GPU", "NPU"
+)
+
+prediction = inferencer.predict(image="path/to/image.jpg")
+
+print(prediction.pred_score)
+print(prediction.anomaly_map)
+```
+
+The `OpenVINOInferencer` accepts a path to the `.xml` file, a `.onnx` file, or a `(xml_bytes, bin_bytes)` tuple. The matching `.bin` and `metadata.json` files are loaded automatically from the same directory.
+
+Use the standalone script for batch inference over a directory:
+
+```bash
+python tools/inference/openvino_inference.py \
+  --weights results/Patchcore/MVTecAD/bottle/weights/openvino/model.xml \
+  --input path/to/images/ \
+  --output path/to/output/ \
+  --device CPU
+```
+
+## Gradio demo
+
+The Gradio interface lets you interactively test a model from your browser. It automatically detects whether to use `TorchInferencer` or `OpenVINOInferencer` based on the file extension.
+
+Install Gradio first:
+
+```bash
+pip install gradio
+```
+
+Launch the demo:
+
+```bash
+# With a PyTorch checkpoint
+python tools/inference/gradio_inference.py \
+  --weights results/Patchcore/MVTecAD/bottle/weights/torch/model.pt
+
+# With an OpenVINO model
+python tools/inference/gradio_inference.py \
+  --weights results/Patchcore/MVTecAD/bottle/weights/openvino/model.xml
+
+# Share the demo publicly with a Gradio link
+python tools/inference/gradio_inference.py \
+  --weights results/Patchcore/MVTecAD/bottle/weights/torch/model.pt \
+  --share True
+```
+
+The interface accepts images from a file upload or webcam and displays the predicted heat map and segmentation overlay.
+
+## Zero-shot and few-shot models
+
+For zero-shot or few-shot models, `engine.predict()` automatically runs a validation pass before prediction to compute normalization statistics and thresholds. You can skip this by providing a `ckpt_path`:
+
+```python
+predictions = engine.predict(
+    model=model,
+    datamodule=datamodule,
+    ckpt_path="path/to/checkpoint.ckpt",  # skips automatic validation
+)
+```
+
+<Tip>
+  If `ckpt_path` is omitted and the engine has not run `fit()` yet, predictions will use the model's current (untrained) weights. Always pass a checkpoint path when running standalone inference.
+</Tip>

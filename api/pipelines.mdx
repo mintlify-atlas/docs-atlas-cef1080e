@@ -1,0 +1,181 @@
+---
+title: "Pipelines"
+description: "High-level pipelines for benchmarking models and processing large images with tiled ensembles."
+keywords: ["pipelines", "benchmark", "tiled ensemble", "high resolution", "benchmarking", "anomaly detection"]
+---
+
+Anomalib pipelines orchestrate end-to-end workflows that go beyond a single training or evaluation run. Two pipelines are available:
+
+- **`Benchmark`** — compare multiple models across datasets and record performance metrics.
+- **`TrainTiledEnsemble` / `EvalTiledEnsemble`** — train and evaluate a memory-efficient tiled ensemble for high-resolution images.
+
+---
+
+## Benchmark pipeline
+
+The `Benchmark` pipeline runs a matrix of model-and-dataset combinations, collecting results for comparison. It automatically selects serial or parallel execution based on available hardware: parallel runners are used when multiple CUDA GPUs are detected.
+
+### Running via CLI
+
+```bash
+anomalib benchmark --config benchmark_config.yaml
+```
+
+### Running programmatically
+
+```python
+from anomalib.pipelines import Benchmark
+
+benchmark = Benchmark()
+results = benchmark.run(args={"config": "benchmark_config.yaml"})
+```
+
+### Configuration format
+
+The benchmark pipeline uses a YAML config file with a `grid` key to enumerate combinations:
+
+```yaml
+accelerator:
+  - cpu
+
+benchmark:
+  seed: 42
+  model:
+    grid:
+      - class_path: Patchcore
+      - class_path: Padim
+  data:
+    class_path: MVTecAD
+    init_args:
+      category:
+        grid:
+          - bottle
+          - cable
+          - carpet
+```
+
+Each `grid` entry generates a separate benchmark job. All combinations are enumerated automatically.
+
+<ParamField path="accelerator" type="string | list[string]" required>
+  Compute device(s) to use. Supported values are `"cpu"` and `"cuda"`. When multiple CUDA GPUs are available, jobs are distributed across them in parallel.
+</ParamField>
+
+<ParamField path="benchmark.seed" type="integer" default="42">
+  Random seed applied to each benchmark job for reproducibility.
+</ParamField>
+
+<ParamField path="benchmark.model.grid" type="list[object]" required>
+  List of model configurations to benchmark. Each entry must include a `class_path` key referencing an `AnomalibModule` subclass.
+</ParamField>
+
+<ParamField path="benchmark.data.class_path" type="string" required>
+  The dataset class to use. Must be an `AnomalibDataModule` subclass such as `MVTecAD` or `VisA`.
+</ParamField>
+
+---
+
+## Tiled ensemble pipeline
+
+The tiled ensemble pipeline processes high-resolution images by dividing them into a grid of overlapping tiles and training a dedicated model for each tile position. This avoids GPU out-of-memory errors without downscaling the images.
+
+<Note>
+  This pipeline is based on the paper "Divide and Conquer: High-Resolution Industrial Anomaly Detection via Memory Efficient Tiled Ensemble" (CVPR Workshops, VAND 2.0, 2024).
+</Note>
+
+Two pipeline classes are provided:
+
+- **`TrainTiledEnsemble`** — trains one model per tile position, runs validation prediction, merges predictions, optionally smooths seams, and computes post-processing statistics.
+- **`EvalTiledEnsemble`** — evaluates a previously trained tiled ensemble on test data.
+
+### Training
+
+```bash
+python tools/tiled_ensemble/train_ensemble.py \
+    --config tools/tiled_ensemble/ens_config.yaml
+```
+
+Programmatically:
+
+```python
+from anomalib.pipelines.tiled_ensemble import TrainTiledEnsemble
+
+pipeline = TrainTiledEnsemble()
+pipeline.run(args=config)
+```
+
+### Evaluation
+
+```bash
+python tools/tiled_ensemble/eval.py \
+    --config tools/tiled_ensemble/ens_config.yaml \
+    --root results/Padim/MVTec/bottle/v0
+```
+
+### Training stages
+
+The `TrainTiledEnsemble` pipeline runs these steps in sequence:
+
+<Steps>
+  <Step title="Train models">
+    One model per tile position is trained in parallel across available GPUs (or serially on CPU).
+  </Step>
+  <Step title="Predict on validation data">
+    Validation images are tiled and run through each tile model.
+  </Step>
+  <Step title="Merge predictions">
+    Per-tile predictions are stitched back into full-resolution anomaly maps.
+  </Step>
+  <Step title="Smooth seams (optional)">
+    If `SeamSmoothing.apply` is `true`, a smoothing step blends boundaries between tiles to reduce tiling artifacts.
+  </Step>
+  <Step title="Calculate statistics">
+    Normalization and threshold statistics are computed from the merged validation predictions and saved alongside the models.
+  </Step>
+</Steps>
+
+### Configuration format
+
+```yaml
+seed: 42
+accelerator: cuda
+
+tiling:
+  tile_size: 256
+  stride: 128
+
+normalization_stage: image
+
+data:
+  class_path: MVTecAD
+  init_args:
+    category: bottle
+    image_size: [512, 512]
+    val_split_mode: from_test
+
+TrainModels:
+  model:
+    class_path: Padim
+
+SeamSmoothing:
+  apply: true
+```
+
+<ParamField path="tiling.tile_size" type="integer" required>
+  Height and width of each tile in pixels. All tiles are square.
+</ParamField>
+
+<ParamField path="tiling.stride" type="integer" required>
+  Step size between tile centers. A stride smaller than `tile_size` creates overlap between adjacent tiles.
+</ParamField>
+
+<ParamField path="normalization_stage" type="string" default="image">
+  When to apply score normalization. Use `"image"` to normalize at the image level or `"tile"` to normalize per tile before merging.
+</ParamField>
+
+<ParamField path="SeamSmoothing.apply" type="boolean" default="false">
+  Whether to apply seam smoothing after merging tile predictions.
+</ParamField>
+
+<ParamField path="accelerator" type="string">
+  Compute device — `"cpu"` or `"cuda"`. When multiple CUDA GPUs are available, tile models are trained in parallel.
+</ParamField>

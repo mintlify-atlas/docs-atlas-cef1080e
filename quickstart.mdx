@@ -1,80 +1,221 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Train an anomaly detection model and run inference in under five minutes using the Python API or CLI."
+keywords: ["quickstart", "training", "inference", "patchcore", "mvtec", "openvino"]
 ---
 
-## Get started in three steps
-
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide walks you through installing Anomalib, training PatchCore on the MVTec AD dataset, running inference, and exporting the model to OpenVINO — all from scratch.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Before you start, make sure you have Python 3.10+ installed. Run `python --version` to check.
 </Note>
+
+<Steps>
+  <Step title="Install Anomalib">
+    Install Anomalib from PyPI. Choose the extra that matches your hardware:
+
+    <Tabs>
+      <Tab title="uv">
+        ```bash
+        # Standard install (CPU / default CUDA)
+        uv pip install anomalib
+
+        # CUDA 12.6
+        uv pip install "anomalib[cu126]"
+
+        # CPU only
+        uv pip install "anomalib[cpu]"
+        ```
+      </Tab>
+      <Tab title="pip">
+        ```bash
+        # Standard install (CPU / default CUDA)
+        pip install anomalib
+
+        # CUDA 12.6
+        pip install "anomalib[cu126]"
+
+        # CPU only
+        pip install "anomalib[cpu]"
+        ```
+      </Tab>
+    </Tabs>
+
+    See the [installation guide](/installation) for all hardware backends including ROCm, Intel XPU, and CUDA 11.8.
+  </Step>
+
+  <Step title="Train a model">
+    Train PatchCore on the MVTec AD `bottle` category. Anomalib downloads the dataset automatically on the first run.
+
+    <Tabs>
+      <Tab title="Python API">
+        ```python
+        from anomalib.data import MVTecAD
+        from anomalib.models import Patchcore
+        from anomalib.engine import Engine
+
+        # Initialize dataset, model, and engine
+        datamodule = MVTecAD(
+            root="./datasets/MVTecAD",
+            category="bottle",
+            train_batch_size=32,
+            eval_batch_size=32,
+        )
+        model = Patchcore()
+        engine = Engine()
+
+        # Train the model
+        engine.fit(datamodule=datamodule, model=model)
+        ```
+
+        The trained checkpoint is saved to `results/Patchcore/MVTecAD/bottle/latest/weights/lightning/model.ckpt` by default.
+      </Tab>
+      <Tab title="CLI">
+        ```bash
+        # Train with default settings (downloads MVTec AD automatically)
+        anomalib train --model Patchcore --data anomalib.data.MVTecAD
+
+        # Train on a specific category
+        anomalib train --model Patchcore --data anomalib.data.MVTecAD \
+            --data.category bottle
+
+        # Train with a config file
+        anomalib train --config path/to/config.yaml
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Evaluate the model">
+    Run the test split to get image-level AUROC and pixel-level PRO scores:
+
+    <Tabs>
+      <Tab title="Python API">
+        ```python
+        # Continue from the training session above
+        test_results = engine.test(datamodule=datamodule, model=model)
+        print(test_results)
+        ```
+      </Tab>
+      <Tab title="CLI">
+        ```bash
+        anomalib test --model Patchcore \
+            --data anomalib.data.MVTecAD \
+            --ckpt_path results/Patchcore/MVTecAD/bottle/latest/weights/lightning/model.ckpt
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Run inference">
+    Generate predictions on new images using a trained checkpoint:
+
+    <Tabs>
+      <Tab title="Python API">
+        ```python
+        from anomalib.data import PredictDataset
+        from anomalib.engine import Engine
+        from anomalib.models import Patchcore
+
+        model = Patchcore()
+        engine = Engine()
+
+        # Point to a single image or a directory of images
+        dataset = PredictDataset(
+            path="path/to/test/images",
+            image_size=(256, 256),
+        )
+
+        predictions = engine.predict(
+            model=model,
+            dataset=dataset,
+            ckpt_path="results/Patchcore/MVTecAD/bottle/latest/weights/lightning/model.ckpt",
+        )
+
+        for prediction in predictions:
+            print(prediction.image_path)
+            print(prediction.pred_score)   # image-level anomaly score
+            print(prediction.pred_label)   # 0 = normal, 1 = anomalous
+            print(prediction.anomaly_map)  # pixel-level heatmap (H x W)
+        ```
+      </Tab>
+      <Tab title="CLI">
+        ```bash
+        # Predict on a single image
+        anomalib predict \
+            --model anomalib.models.Patchcore \
+            --ckpt_path results/Patchcore/MVTecAD/bottle/latest/weights/lightning/model.ckpt \
+            --data path/to/image.jpg
+
+        # Predict on a directory
+        anomalib predict \
+            --model anomalib.models.Patchcore \
+            --ckpt_path results/Patchcore/MVTecAD/bottle/latest/weights/lightning/model.ckpt \
+            --data datasets/MVTecAD/bottle/test
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Export to OpenVINO">
+    Export the trained model for accelerated inference on Intel hardware:
+
+    <Tabs>
+      <Tab title="Python API">
+        ```python
+        from anomalib.deploy import ExportType
+
+        engine.export(
+            model=model,
+            export_type=ExportType.OPENVINO,
+            ckpt_path="results/Patchcore/MVTecAD/bottle/latest/weights/lightning/model.ckpt",
+        )
+        ```
+
+        The exported model is saved alongside the checkpoint under `weights/openvino/`.
+
+        To run inference with the exported model:
+
+        ```python
+        from anomalib.deploy import OpenVINOInferencer
+
+        inferencer = OpenVINOInferencer(
+            path="results/Patchcore/MVTecAD/bottle/latest/weights/openvino/model.bin",
+        )
+
+        predictions = inferencer.predict(image="path/to/image.png")
+        print(predictions.pred_score)
+        print(predictions.anomaly_map)
+        ```
+      </Tab>
+      <Tab title="CLI">
+        ```bash
+        anomalib export --model Patchcore \
+            --ckpt_path results/Patchcore/MVTecAD/bottle/latest/weights/lightning/model.ckpt \
+            --export_type OPENVINO
+        ```
+      </Tab>
+    </Tabs>
+
+    <Tip>
+      OpenVINO export requires the `openvino` optional dependency. Install it with `pip install "anomalib[openvino]"`.
+    </Tip>
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Training guide" icon="dumbbell" href="/guides/training">
+    Customize the Engine, switch models, use your own data, and tune training settings.
+  </Card>
+  <Card title="Model library" icon="brain" href="/models/overview">
+    Explore all 20+ algorithms and their benchmark results on MVTec AD and VisA.
+  </Card>
+  <Card title="Custom data" icon="folder-open" href="/guides/custom-data">
+    Bring your own images using the `Folder` datamodule.
+  </Card>
+  <Card title="Deployment guide" icon="rocket" href="/guides/deployment">
+    Learn about OpenVINO IR, ONNX, and TorchScript export options.
+  </Card>
+</CardGroup>

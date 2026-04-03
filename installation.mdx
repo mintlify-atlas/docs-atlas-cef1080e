@@ -1,0 +1,259 @@
+---
+title: "Installation"
+description: "Install Anomalib from PyPI with the correct hardware backend for your system, or build from source."
+keywords: ["installation", "pip", "uv", "cuda", "rocm", "xpu", "openvino", "python"]
+---
+
+Anomalib requires **Python 3.10–3.12** and **PyTorch 2.6+**. Install from PyPI using `uv` or `pip`. Choose the hardware extra that matches your GPU to ensure the correct PyTorch build is installed.
+
+<Note>
+  PyTorch 2.6.0 is the minimum supported version due to a critical security fix (CVE-2025-32434 — `torch.load` remote code execution). Earlier versions are not supported.
+</Note>
+
+## Standard install
+
+For CPU-only or standard CUDA environments, install without a hardware extra:
+
+<CodeGroup>
+
+```bash uv
+uv pip install anomalib
+```
+
+```bash pip
+pip install anomalib
+```
+
+</CodeGroup>
+
+PyTorch will be installed using its default index, which covers CPU and common CUDA configurations. For explicit hardware control, use a hardware extra as described below.
+
+## Hardware backends
+
+Specify a hardware extra to install the correct PyTorch build for your system.
+
+<Steps>
+  <Step title="Choose your backend">
+    <Tabs>
+      <Tab title="CPU">
+        Suitable for development and systems without a GPU.
+
+        <CodeGroup>
+
+        ```bash uv
+        uv pip install "anomalib[cpu]"
+        ```
+
+        ```bash pip
+        pip install "anomalib[cpu]"
+        ```
+
+        </CodeGroup>
+
+        Installs `torch>=2.6.0,<=2.8.0` and `torchvision>=0.21.0` from the PyTorch CPU index.
+      </Tab>
+      <Tab title="CUDA 12.6">
+        For NVIDIA GPUs on Linux or Windows with CUDA 12.6.
+
+        <CodeGroup>
+
+        ```bash uv
+        uv pip install "anomalib[cu126]"
+        ```
+
+        ```bash pip
+        pip install "anomalib[cu126]"
+        ```
+
+        </CodeGroup>
+
+        Installs `torch>=2.6.0,<=2.8.0` from the PyTorch CUDA 12.6 index.
+      </Tab>
+      <Tab title="CUDA 12.8+">
+        For NVIDIA GPUs with CUDA 12.8 or later (CUDA 13.0 index).
+
+        <CodeGroup>
+
+        ```bash uv
+        uv pip install "anomalib[cu130]"
+        ```
+
+        ```bash pip
+        pip install "anomalib[cu130]"
+        ```
+
+        </CodeGroup>
+
+        Installs `torch>=2.9.0` and `torchvision>=0.24.0` from the PyTorch CUDA 13.0 index.
+      </Tab>
+      <Tab title="CUDA 11.8">
+        For older NVIDIA GPUs that require CUDA 11.8.
+
+        <CodeGroup>
+
+        ```bash uv
+        uv pip install "anomalib[cu118]"
+        ```
+
+        ```bash pip
+        pip install "anomalib[cu118]"
+        ```
+
+        </CodeGroup>
+
+        Installs `torch>=2.6.0,<=2.7.1`. CUDA 11.8 support was dropped in torch 2.8+.
+      </Tab>
+      <Tab title="ROCm">
+        For AMD GPUs on Linux using ROCm.
+
+        <CodeGroup>
+
+        ```bash uv
+        uv pip install "anomalib[rocm]"
+        ```
+
+        ```bash pip
+        pip install "anomalib[rocm]"
+        ```
+
+        </CodeGroup>
+
+        Installs `torch>=2.6.0,<=2.8.0` and `pytorch-triton-rocm` from the ROCm 6.1 index. Linux only.
+      </Tab>
+      <Tab title="Intel XPU">
+        For Intel GPUs (Arc, Flex, Max) using the XPU backend.
+
+        <CodeGroup>
+
+        ```bash uv
+        uv pip install "anomalib[xpu]"
+        ```
+
+        ```bash pip
+        pip install "anomalib[xpu]"
+        ```
+
+        </CodeGroup>
+
+        Installs `torch>=2.6.0` and `pytorch-triton-xpu`. Requires PyTorch with XPU support. See the [PyTorch XPU documentation](https://pytorch.org/docs/stable/notes/get_start_xpu.html) for prerequisites.
+
+        <Warning>
+          Only single-GPU training is currently supported on Intel XPU. Tested on Arc 750 and Arc 770.
+        </Warning>
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Verify the installation">
+    Confirm Anomalib and PyTorch are installed correctly:
+
+    ```python
+    import anomalib
+    import torch
+
+    print(anomalib.__version__)
+    print(torch.__version__)
+    print(torch.cuda.is_available())  # True if a CUDA GPU is available
+    ```
+  </Step>
+</Steps>
+
+## Optional dependencies
+
+Anomalib includes its core dependencies by default. Install optional groups for specific features:
+
+| Extra | Install command | Purpose |
+|---|---|---|
+| `openvino` | `pip install "anomalib[openvino]"` | OpenVINO export and accelerated inference on Intel hardware. Requires `openvino>=2024.0`, `nncf>=2.10.0`, and `onnx>=1.16.0`. |
+| `clip` | `pip install "anomalib[clip]"` | WinCLIP zero-shot model. Requires `open-clip-torch`. |
+| `vlm` | `pip install "anomalib[vlm]"` | Vision-language model backends (Ollama, OpenAI, HuggingFace Transformers). |
+| `loggers` | `pip install "anomalib[loggers]"` | Experiment tracking: Weights & Biases, Comet.ml, TensorBoard, MLflow, Gradio. |
+| `notebooks` | `pip install "anomalib[notebooks]"` | Jupyter notebook support (`ipykernel`, `ipywidgets`, `notebook`). |
+| `full` | `pip install "anomalib[full]"` | All optional dependencies: `clip`, `openvino`, `loggers`, `notebooks`, `vlm`, `video`. |
+
+You can combine extras with a hardware backend:
+
+<CodeGroup>
+
+```bash uv
+# OpenVINO + CUDA 12.6
+uv pip install "anomalib[openvino,cu126]"
+
+# All optional deps + CPU
+uv pip install "anomalib[full,cpu]"
+```
+
+```bash pip
+# OpenVINO + CUDA 12.6
+pip install "anomalib[openvino,cu126]"
+
+# All optional deps + CPU
+pip install "anomalib[full,cpu]"
+```
+
+</CodeGroup>
+
+## Install from source
+
+Install a development or unreleased version directly from the GitHub repository.
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/open-edge-platform/anomalib.git
+    cd anomalib
+    ```
+  </Step>
+
+  <Step title="Create a virtual environment and install">
+    <Tabs>
+      <Tab title="uv (recommended)">
+        `uv` uses the project's lockfile for a fully reproducible environment.
+
+        ```bash
+        # Create the virtual environment
+        uv venv
+
+        # Install with a hardware backend (e.g. CPU)
+        uv sync --extra cpu
+
+        # Or for CUDA 12.6
+        uv sync --extra cu126
+
+        # Full development environment (includes test and doc dependencies)
+        uv sync --extra dev --extra cpu
+        ```
+      </Tab>
+      <Tab title="pip">
+        ```bash
+        # Editable install with a hardware backend
+        pip install -e ".[cpu]"
+
+        # Editable install with development dependencies
+        pip install -e ".[dev,cpu]"
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Verify">
+    ```bash
+    python -c "import anomalib; print(anomalib.__version__)"
+    ```
+
+    A development version will display a version string ending in `.dev0`, for example `2.3.3.dev0`.
+  </Step>
+</Steps>
+
+## Requirements summary
+
+| Requirement | Minimum version |
+|---|---|
+| Python | 3.10 |
+| PyTorch | 2.6.0 |
+| PyTorch Lightning | 2.6 |
+| OpenVINO (optional) | 2024.0 |
+
+<Tip>
+  We recommend using a virtual environment (`uv venv` or `python -m venv`) to isolate Anomalib's dependencies from other projects on your system.
+</Tip>

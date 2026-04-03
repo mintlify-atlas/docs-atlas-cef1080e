@@ -1,97 +1,112 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Anomalib"
+description: "A deep learning library for benchmarking, developing, and deploying state-of-the-art anomaly detection algorithms."
 ---
 
-## Setting up
+Anomalib is a deep learning library that collects state-of-the-art anomaly detection algorithms for benchmarking on public and private datasets. It provides ready-to-use model implementations, standardized training and evaluation pipelines, and tools for developing custom anomaly detection solutions — all focused on visual anomaly detection in images and video.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Train your first anomaly detection model in minutes with the Python API or CLI.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Installation" icon="download" href="/installation">
+    Install Anomalib with the right hardware backend for your system.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Model Library" icon="brain" href="/models/overview">
+    Explore 20+ state-of-the-art anomaly detection algorithms.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="code" href="/api/engine">
+    Full reference for the Engine, models, data modules, and more.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you can do with Anomalib
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Train models" icon="dumbbell" href="/guides/training">
+    Use the Engine API or CLI to train on standard benchmark datasets or your own data.
+  </Card>
+  <Card title="Run inference" icon="play" href="/guides/inference">
+    Generate anomaly scores and segmentation masks from trained models.
+  </Card>
+  <Card title="Use custom data" icon="folder-open" href="/guides/custom-data">
+    Bring your own images using the Folder datamodule or build a custom dataset.
+  </Card>
+  <Card title="Export for deployment" icon="box-arrow-up" href="/guides/deployment">
+    Export models to OpenVINO IR, ONNX, or TorchScript for production inference.
+  </Card>
+  <Card title="Optimize hyperparameters" icon="sliders" href="/guides/hyperparameter-optimization">
+    Run HPO sweeps with Weights & Biases or Comet.ml.
+  </Card>
+  <Card title="Benchmark models" icon="chart-bar" href="/guides/benchmarking">
+    Compare model performance across datasets and configurations.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Get started
 
-## Need inspiration?
+<Steps>
+  <Step title="Install Anomalib">
+    Install from PyPI with your hardware backend of choice:
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+    ```bash
+    pip install anomalib          # standard install
+    pip install "anomalib[cu126]" # CUDA 12.6
+    pip install "anomalib[cpu]"   # CPU only
+    ```
+  </Step>
+  <Step title="Train a model">
+    Use the Python API to train PatchCore on the MVTec AD dataset:
+
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+
+    datamodule = MVTecAD()
+    model = Patchcore()
+    engine = Engine()
+
+    engine.fit(datamodule=datamodule, model=model)
+    ```
+  </Step>
+  <Step title="Run inference">
+    Generate predictions from a trained checkpoint:
+
+    ```python
+    predictions = engine.predict(
+        datamodule=datamodule,
+        model=model,
+        ckpt_path="results/Patchcore/MVTecAD/latest/weights/lightning/model.ckpt",
+    )
+    ```
+  </Step>
+  <Step title="Export for production">
+    Export to OpenVINO for optimized edge inference:
+
+    ```python
+    from anomalib.deploy import ExportType
+
+    engine.export(
+        model=model,
+        export_type=ExportType.OPENVINO,
+        ckpt_path="path/to/model.ckpt",
+    )
+    ```
+  </Step>
+</Steps>
+
+## Key features
+
+- **20+ algorithms** — PatchCore, PaDiM, EfficientAD, DRAEM, WinCLIP, and many more
+- **Dual interface** — Python API and CLI for every workflow
+- **Lightning-based** — Built on PyTorch Lightning to reduce boilerplate
+- **OpenVINO export** — Accelerated inference on Intel hardware out of the box
+- **Multi-modal support** — Images, video, and depth data
+- **Learning paradigms** — One-class, zero-shot, and few-shot learning
+- **Experiment tracking** — Native integrations with W&B, Comet.ml, and TensorBoard
+- **Anomalib Studio** — No-code web UI for training and camera-based deployment
+
+<Note>
+  Anomalib requires Python 3.10+ and PyTorch 2.6+. See the [installation guide](/installation) for full requirements.
+</Note>

@@ -1,0 +1,296 @@
+---
+title: "Using custom data"
+description: "Load your own images with the Folder datamodule, or build a custom AnomalibDataset subclass for full control."
+keywords: ["anomalib", "custom dataset", "Folder datamodule", "AnomalibDataset", "custom data", "augmentation"]
+---
+
+Anomalib provides two ways to bring in custom data: the `Folder` datamodule for images organised in a directory tree, and a custom `AnomalibDataset` subclass for full control over how samples are collected.
+
+## Using the Folder datamodule
+
+`Folder` is the fastest way to train on custom image data. Point it at directories containing normal and abnormal images, and it handles the rest.
+
+### Directory structure
+
+Organise your dataset with a `train` split (normal images only) and a `test` split containing both normal and abnormal sub-directories. Ground-truth segmentation masks are optional.
+
+```
+dataset/
+├── train/
+│   └── good/          # normal training images
+├── test/
+│   ├── good/          # normal test images
+│   └── crack/         # abnormal test images (one dir per defect type)
+└── ground_truth/      # optional pixel-level masks
+    └── crack/         # one mask image per abnormal image
+```
+
+<Tip>
+Mask images must have the same filename as their corresponding abnormal image. Each pixel should be 0 for background and 255 for the anomalous region.
+</Tip>
+
+### Segmentation task
+
+Use `Folder` when you have both normal and abnormal images and optionally per-pixel masks:
+
+```python
+from anomalib.data import Folder
+
+datamodule = Folder(
+    name="hazelnut",
+    root="./datasets/hazelnut",
+    normal_dir="train/good",
+    abnormal_dir="test/crack",
+    normal_test_dir="test/good",
+    mask_dir="ground_truth/crack",
+    train_batch_size=32,
+    eval_batch_size=32,
+)
+datamodule.setup()
+
+batch = next(iter(datamodule.train_dataloader()))
+print(batch.image.shape)   # torch.Size([32, 3, 256, 256])
+print(batch.mask.shape)    # torch.Size([32, 256, 256])
+```
+
+### Classification task
+
+If you do not have ground-truth masks, omit `mask_dir` and set the task to classification in the engine:
+
+```python
+from anomalib.data import Folder
+from anomalib.engine import Engine
+from anomalib.models import Patchcore
+
+datamodule = Folder(
+    name="hazelnut_cls",
+    root="./datasets/hazelnut",
+    normal_dir="train/good",
+    abnormal_dir="test/crack",
+    normal_test_dir="test/good",
+    train_batch_size=32,
+    eval_batch_size=32,
+)
+
+engine = Engine(task="classification")
+engine.train(model=Patchcore(), datamodule=datamodule)
+```
+
+### Only normal images (with synthetic anomalies)
+
+When abnormal images are not available, pass `test_split_mode="synthetic"` to generate synthetic anomalies at test time:
+
+```python
+from anomalib.data import Folder
+from anomalib.data.utils import TestSplitMode
+
+datamodule = Folder(
+    name="normal_only",
+    root="./datasets/my_data",
+    normal_dir="good",
+    test_split_mode=TestSplitMode.SYNTHETIC,
+    test_split_ratio=0.2,
+    train_batch_size=32,
+    eval_batch_size=32,
+)
+datamodule.setup()
+```
+
+### Folder parameters reference
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | required | Dataset name used for logging |
+| `normal_dir` | `str \| Path \| Sequence` | required | Directory with normal images |
+| `root` | `str \| Path \| None` | `None` | Root prepended to all directory paths |
+| `abnormal_dir` | `str \| Path \| Sequence \| None` | `None` | Directory with abnormal images |
+| `normal_test_dir` | `str \| Path \| Sequence \| None` | `None` | Normal images used only for testing |
+| `mask_dir` | `str \| Path \| Sequence \| None` | `None` | Binary anomaly masks for abnormal images |
+| `normal_split_ratio` | `float` | `0.2` | Fraction of normal images held out for the test set when no `normal_test_dir` is given |
+| `extensions` | `tuple[str, ...] \| None` | `None` | Restrict image loading to specific file extensions |
+| `train_batch_size` | `int` | `32` | Training batch size |
+| `eval_batch_size` | `int` | `32` | Validation/test batch size |
+| `num_workers` | `int` | `8` | Dataloader worker processes |
+| `test_split_mode` | `TestSplitMode \| str` | `"from_dir"` | How the test subset is created |
+| `test_split_ratio` | `float` | `0.2` | Fraction of train images for testing |
+| `val_split_mode` | `ValSplitMode \| str` | `"from_test"` | How the validation subset is created |
+| `val_split_ratio` | `float` | `0.5` | Fraction of images for validation |
+| `seed` | `int \| None` | `None` | Random seed for reproducible splits |
+
+## Building a custom AnomalibDataset subclass
+
+For full control — for example, if your data comes from a database, a non-standard archive format, or requires custom preprocessing — subclass `AnomalibDataset` directly.
+
+The only requirement is that your `_setup` method populates `self.samples` with a pandas `DataFrame` containing at minimum these columns:
+
+| Column | Type | Description |
+|---|---|---|
+| `image_path` | `str` | Absolute path to the image file |
+| `label` | `str` | `"normal"` or `"anomalous"` |
+| `label_index` | `int` | `0` for normal, `1` for anomalous |
+| `split` | `str` | `"train"`, `"val"`, or `"test"` |
+| `mask_path` | `str` | Path to the mask image (optional, segmentation only) |
+
+```python
+import pandas as pd
+from pathlib import Path
+from anomalib.data.datasets.base.image import AnomalibDataset
+
+
+class MyDataset(AnomalibDataset):
+    """Custom dataset loaded from a flat directory."""
+
+    def __init__(
+        self,
+        root: Path | str = "./datasets/my_data",
+        split: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.root = Path(root)
+        self.split = split
+        self.samples = self._make_dataset()
+
+    def _make_dataset(self) -> pd.DataFrame:
+        rows = []
+
+        # Normal training images
+        for path in (self.root / "normal").glob("*.png"):
+            rows.append({
+                "image_path": str(path),
+                "label": "normal",
+                "label_index": 0,
+                "split": "train",
+                "mask_path": "",
+            })
+
+        # Anomalous test images with masks
+        for path in (self.root / "anomaly").glob("*.png"):
+            mask = self.root / "masks" / f"{path.stem}_mask.png"
+            rows.append({
+                "image_path": str(path),
+                "label": "anomalous",
+                "label_index": 1,
+                "split": "test",
+                "mask_path": str(mask) if mask.exists() else "",
+            })
+
+        df = pd.DataFrame(rows)
+        df.attrs["task"] = "segmentation"
+        return df
+```
+
+### Wrapping in a datamodule
+
+Pair your dataset with a custom datamodule so it integrates with the `Engine`:
+
+```python
+from anomalib.data.datamodules.base.image import AnomalibDataModule
+
+
+class MyDataModule(AnomalibDataModule):
+    def __init__(
+        self,
+        root: str = "./datasets/my_data",
+        train_batch_size: int = 32,
+        eval_batch_size: int = 32,
+        num_workers: int = 8,
+    ) -> None:
+        super().__init__(
+            train_batch_size=train_batch_size,
+            eval_batch_size=eval_batch_size,
+            num_workers=num_workers,
+        )
+        self.root = root
+
+    def _setup(self, _stage: str | None = None) -> None:
+        self.train_data = MyDataset(root=self.root, split="train")
+        self.test_data = MyDataset(root=self.root, split="test")
+```
+
+## Data augmentation
+
+Pass any `torchvision.transforms.v2` transform to the `train_augmentations`, `val_augmentations`, or `test_augmentations` parameters. Use the top-level `augmentations` parameter to apply the same transform to all splits.
+
+```python
+from torchvision.transforms.v2 import (
+    Compose,
+    RandomHorizontalFlip,
+    ColorJitter,
+    Resize,
+)
+from anomalib.data import Folder
+
+train_aug = Compose([
+    RandomHorizontalFlip(p=0.5),
+    ColorJitter(brightness=0.2, contrast=0.2),
+])
+
+datamodule = Folder(
+    name="hazelnut",
+    root="./datasets/hazelnut",
+    normal_dir="train/good",
+    abnormal_dir="test/crack",
+    train_augmentations=train_aug,
+    train_batch_size=32,
+    eval_batch_size=32,
+)
+```
+
+<Note>
+If your model's `PreProcessor` includes a `Resize` transform, Anomalib automatically appends it to your augmentation pipeline to ensure images are resized before collation. If you also include a `Resize` in your augmentations with a different size, a warning is logged.
+</Note>
+
+## Validation split configuration
+
+The validation split is controlled by `val_split_mode` and `val_split_ratio`:
+
+<Steps>
+  <Step title="From the test set (default for Folder)">
+    A fraction of the test set is randomly sampled and used as validation.
+
+    ```python
+    from anomalib.data.utils import ValSplitMode
+
+    datamodule = Folder(
+        name="hazelnut",
+        root="./datasets/hazelnut",
+        normal_dir="train/good",
+        abnormal_dir="test/crack",
+        val_split_mode=ValSplitMode.FROM_TEST,
+        val_split_ratio=0.2,
+    )
+    ```
+  </Step>
+
+  <Step title="Same as test">
+    The validation set is a deep copy of the test set. Default for most built-in datamodules.
+
+    ```python
+    from anomalib.data.utils import ValSplitMode
+
+    datamodule = Folder(
+        name="hazelnut",
+        root="./datasets/hazelnut",
+        normal_dir="train/good",
+        abnormal_dir="test/crack",
+        val_split_mode=ValSplitMode.SAME_AS_TEST,
+    )
+    ```
+  </Step>
+
+  <Step title="Synthetic anomalies">
+    Normal images from the training set are sampled and synthetic anomalies are generated to form the validation set. Useful when only normal images are available.
+
+    ```python
+    from anomalib.data.utils import ValSplitMode
+
+    datamodule = Folder(
+        name="hazelnut",
+        root="./datasets/hazelnut",
+        normal_dir="train/good",
+        val_split_mode=ValSplitMode.SYNTHETIC,
+        val_split_ratio=0.1,
+    )
+    ```
+  </Step>
+</Steps>

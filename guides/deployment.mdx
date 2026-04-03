@@ -1,0 +1,223 @@
+---
+title: "Deployment"
+description: "Export trained models to PyTorch, ONNX, or OpenVINO IR format for production inference."
+keywords: ["deployment", "export", "openvino", "onnx", "torch", "inference", "production", "compression", "quantization"]
+---
+
+Anomalib supports exporting trained models to three formats: PyTorch (`.pt`), ONNX (`.onnx`), and OpenVINO IR (`.xml`/`.bin`). OpenVINO IR enables accelerated inference on Intel CPUs, GPUs, and NPUs.
+
+## Export types
+
+| Format | `ExportType` | Use case |
+|---|---|---|
+| PyTorch | `ExportType.TORCH` | Fast iteration, Python-only deployments. |
+| ONNX | `ExportType.ONNX` | Cross-framework compatibility, ONNX Runtime. |
+| OpenVINO IR | `ExportType.OPENVINO` | Optimized inference on Intel hardware. |
+
+## Exporting a model
+
+<Tabs>
+  <Tab title="Python API">
+    ```python
+    from anomalib.data import MVTecAD
+    from anomalib.models import Patchcore
+    from anomalib.engine import Engine
+    from anomalib.deploy import ExportType
+
+    model = Patchcore()
+    engine = Engine()
+
+    # Export to PyTorch
+    engine.export(
+        model=model,
+        export_type=ExportType.TORCH,
+        ckpt_path="results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt",
+    )
+
+    # Export to ONNX (input_size required)
+    engine.export(
+        model=model,
+        export_type=ExportType.ONNX,
+        input_size=(256, 256),
+        ckpt_path="results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt",
+    )
+
+    # Export to OpenVINO IR (input_size required)
+    engine.export(
+        model=model,
+        export_type=ExportType.OPENVINO,
+        input_size=(256, 256),
+        ckpt_path="results/Patchcore/MVTecAD/bottle/weights/lightning/model.ckpt",
+    )
+    ```
+
+    The exported files are saved under `results/<model>/<dataset>/<category>/weights/<format>/`.
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    # Export to PyTorch
+    anomalib export \
+      --model Padim \
+      --export_type torch \
+      --ckpt_path results/Padim/MVTecAD/bottle/weights/lightning/model.ckpt
+
+    # Export to ONNX
+    anomalib export \
+      --model Padim \
+      --export_type onnx \
+      --ckpt_path results/Padim/MVTecAD/bottle/weights/lightning/model.ckpt \
+      --input_size "[256,256]"
+
+    # Export to OpenVINO IR
+    anomalib export \
+      --model Padim \
+      --export_type openvino \
+      --ckpt_path results/Padim/MVTecAD/bottle/weights/lightning/model.ckpt \
+      --input_size "[256,256]"
+    ```
+  </Tab>
+</Tabs>
+
+## OpenVINO compression
+
+OpenVINO exports support additional compression options via `CompressionType`. Compression reduces model size and can improve throughput on compatible hardware.
+
+| `CompressionType` | Description |
+|---|---|
+| `FP16` | Converts all weights to FP16. Minimal accuracy impact, good for GPU. |
+| `INT8` | Weight-only INT8 quantization. Dequantizes to float at inference time. |
+| `INT8_PTQ` | Full INT8 post-training quantization. Requires a calibration datamodule. |
+| `INT8_ACQ` | Accuracy-controlled INT8 quantization. Skips layers that would exceed the accuracy drop threshold. |
+
+### FP16 export
+
+```python
+from anomalib.deploy import ExportType, CompressionType
+
+engine.export(
+    model=model,
+    export_type=ExportType.OPENVINO,
+    input_size=(256, 256),
+    compression_type=CompressionType.FP16,
+    ckpt_path="path/to/model.ckpt",
+)
+```
+
+```bash
+anomalib export \
+  --model Padim \
+  --export_type openvino \
+  --ckpt_path path/to/model.ckpt \
+  --input_size "[256,256]" \
+  --compression_type FP16
+```
+
+### INT8 post-training quantization (PTQ)
+
+PTQ requires a calibration dataset. Pass the datamodule to `engine.export()`:
+
+```python
+from anomalib.data import MVTecAD
+
+datamodule = MVTecAD(category="bottle")
+
+engine.export(
+    model=model,
+    export_type=ExportType.OPENVINO,
+    input_size=(256, 256),
+    compression_type=CompressionType.INT8_PTQ,
+    datamodule=datamodule,
+    ckpt_path="path/to/model.ckpt",
+)
+```
+
+```bash
+anomalib export \
+  --model Padim \
+  --export_type openvino \
+  --ckpt_path path/to/model.ckpt \
+  --input_size "[256,256]" \
+  --compression_type INT8_PTQ \
+  --data MVTec
+```
+
+### Accuracy-controlled quantization (ACQ)
+
+ACQ preserves a target metric within a configurable accuracy drop budget:
+
+```python
+from anomalib.metrics import F1Score
+
+engine.export(
+    model=model,
+    export_type=ExportType.OPENVINO,
+    input_size=(256, 256),
+    compression_type=CompressionType.INT8_ACQ,
+    datamodule=datamodule,
+    metric=F1Score(fields=["pred_label", "gt_label"]),
+    max_drop=0.01,   # allow at most 1% accuracy drop
+    ckpt_path="path/to/model.ckpt",
+)
+```
+
+<Note>
+  When `metric` is not provided for `INT8_ACQ`, anomalib defaults to `F1Score` at image level. `max_drop` is only used for `INT8_ACQ` and is ignored for other compression types.
+</Note>
+
+## Using the OpenVINO inferencer
+
+After exporting, load the model with `OpenVINOInferencer`:
+
+```python
+from anomalib.deploy import OpenVINOInferencer
+
+inferencer = OpenVINOInferencer(
+    path="results/Patchcore/MVTecAD/bottle/weights/openvino/model.xml",
+    device="AUTO",  # AUTO, CPU, GPU, NPU
+)
+
+# Predict from a file path, PIL Image, or numpy array
+prediction = inferencer.predict(image="path/to/image.jpg")
+
+print(prediction.pred_score)    # image-level anomaly score
+print(prediction.anomaly_map)   # pixel-level heatmap as numpy array
+```
+
+The inferencer automatically loads the matching `.bin` weights and `metadata.json` (normalization statistics and threshold) from the same directory as the `.xml` file.
+
+## Specifying a custom export path
+
+```python
+from pathlib import Path
+
+engine.export(
+    model=model,
+    export_type=ExportType.OPENVINO,
+    export_root=Path("deploy/my_model"),
+    model_file_name="anomaly_detector",
+    input_size=(256, 256),
+    ckpt_path="path/to/model.ckpt",
+)
+# Saved to: deploy/my_model/weights/openvino/anomaly_detector.xml
+```
+
+## Production considerations
+
+<CardGroup cols={2}>
+  <Card title="Use a static input size" icon="ruler">
+    Always provide `input_size` when exporting to ONNX or OpenVINO. A fixed input shape enables hardware-specific optimizations and avoids dynamic shape overhead.
+  </Card>
+  <Card title="Choose the right device" icon="microchip">
+    Set `device="AUTO"` in `OpenVINOInferencer` to let OpenVINO select the best available device at runtime. Use `"CPU"`, `"GPU"`, or `"NPU"` to pin to a specific target.
+  </Card>
+  <Card title="Quantize for edge targets" icon="bolt">
+    INT8 quantization with `CompressionType.INT8_PTQ` or `INT8_ACQ` can reduce model size by 4× and improve throughput significantly on Intel hardware with minimal accuracy loss.
+  </Card>
+  <Card title="Bundle the metadata" icon="file-export">
+    The `metadata.json` file exported alongside the model weights contains the normalization statistics and anomaly threshold. Always deploy it together with the model files.
+  </Card>
+</CardGroup>
+
+<Tip>
+  For a quick interactive test of your exported model, use the Gradio demo. See [Inference — Gradio demo](/guides/inference#gradio-demo).
+</Tip>
